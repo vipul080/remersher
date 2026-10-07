@@ -1,0 +1,2 @@
+Vendored from https://github.com/hjwdzh/QuadriFlow at commit 810b7a0967c35b0dc85b4464e3835e26a756c967.
+Local modifications are listed in third_party/quadriflow/PATCHES.md.

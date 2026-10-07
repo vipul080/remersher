@@ -1,0 +1,10 @@
+# build output
+/build*/
+/.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# benchmark: outputs of other remeshers stay local, and run results are regenerated
+/bench/reference/
+/bench/results/
