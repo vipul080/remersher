@@ -1,5 +1,6 @@
 #include "remersher/remesher.h"
 
+#include "features.h"
 #include "mesh_cleanup.h"
 #include "quality.h"
 #include "resample.h"
@@ -312,7 +313,11 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         Mesh result;
         std::string why;
         bool ok = solve(tris, attempt, budget, result, why);
-        if (ok) repairPolygonMesh(result);
+        if (ok) {
+            repairPolygonMesh(result);
+            if (settings.detectHardEdges || settings.preserveBoundary)
+                snapToFeatures(result, clean, settings.detectHardEdges ? 60.0 : 0.0);
+        }
         if (ok) {
             // The solver occasionally collapses or folds whole regions without reporting an
             // error; reject those results like a crash.

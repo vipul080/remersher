@@ -68,10 +68,12 @@ transform and materials. CI builds the zip for Linux and macOS on every push.
    aligned to principal curvature and sharp edges, an optional curvature-adaptive scale field,
    and a position field, solved on a multi-resolution hierarchy.
 4. **Quad extraction** with network-flow based singularity and flip removal.
-5. **Validation**: every result is checked against the input surface (stray vertices, holes,
+5. **Feature snapping**: output vertices near input corners, hard edges and borders are moved
+   exactly onto them, growing chains along creases from the corners.
+6. **Validation**: every result is checked against the input surface (stray vertices, holes,
    folded faces); bad solves are rejected and retried with another seed; if every attempt fails, the
    original triangulation is tried and finally the least-bad result is returned with a warning.
-6. **Count calibration**: the solve is repeated with a corrected face budget until the result is
+7. **Count calibration**: the solve is repeated with a corrected face budget until the result is
    within `--tolerance` of the target.
 
 ## Benchmark
@@ -105,7 +107,8 @@ Reference outputs are git-ignored and never committed.
 - [x] Benchmark harness
 - [x] Stable solves on sliver-heavy input (isotropic resampling)
 - [x] Remove non-manifold edges and folded faces from the output
-- [ ] Better hard-edge alignment (crease edge loops)
+- [x] Snap edge loops onto hard edges, corners and borders
+- [ ] Proper corner singularities (valence-3 poles on cube-like corners)
 - [ ] Speed: large targets take 30–90 s
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
