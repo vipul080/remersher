@@ -44,6 +44,18 @@ On macOS and Linux each solve runs in an isolated child process: if a solve hang
 returns invalid geometry it is killed and retried with another seed, so the caller (for example
 Blender) never freezes.
 
+## Blender add-on
+
+```bash
+./scripts/package_addon.sh        # -> dist/remersher_blender-<platform>.zip (CLI bundled inside)
+```
+
+In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick the zip (Blender 3.6+).
+The **Remersher** tab in the 3D view sidebar has Target Quad Count, Adaptive Size, Detect Hard
+Edges, Preserve Borders and Seed. *Remesh* runs in the background (Esc cancels), remeshes the
+active object with its modifiers applied, and adds the result as a new object with the same
+transform and materials. CI builds the zip for Linux and macOS on every push.
+
 ## How it works
 
 1. **Input clean-up**: concave-safe ngon triangulation (ear clipping), tolerance welding of
@@ -87,7 +99,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Engine + CLI, count calibration, crash/hang isolation, input clean-up, result validation
 - [x] Benchmark harness
 - [ ] Fix unstable solves on dense UV spheres (e.g. `sphere_32768` at high counts)
-- [ ] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
+- [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
 - [ ] Vertex-color density painting
 - [ ] Symmetry (X / Y / Z)

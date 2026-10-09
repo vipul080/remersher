@@ -34,3 +34,14 @@ jobs:
             ./build/remersher -i meshes/$m.obj -o $m.out.obj -t 1000 --timeout 60
             test "$(grep -c '^f ' $m.out.obj)" -gt 100
           done
+
+      - name: Blender add-on tests
+        run: python3 tests/test_blender_core.py
+
+      - name: Package Blender add-on
+        run: ./scripts/package_addon.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remersher-blender-${{ matrix.os }}
+          path: dist/*.zip
