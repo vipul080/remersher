@@ -312,6 +312,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         Mesh result;
         std::string why;
         bool ok = solve(tris, attempt, budget, result, why);
+        if (ok) repairPolygonMesh(result);
         if (ok) {
             // The solver occasionally collapses or folds whole regions without reporting an
             // error; reject those results like a crash.

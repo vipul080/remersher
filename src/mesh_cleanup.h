@@ -30,4 +30,11 @@ struct CleanupStats {
 TriangleMesh cleanupForRemeshing(const Mesh& mesh, double weldTolerance = 1e-6,
                                  CleanupStats* stats = nullptr);
 
+// Repairs solver output: welds vertices closer than weldTolerance * bounding-box diagonal (the
+// solver duplicates vertices in place when it untangles non-manifold spots), collapses repeated
+// consecutive corners, and removes folded faces (a corner repeated non-consecutively), duplicate
+// faces and, on edges still shared by more than two faces, the smallest of those faces.
+// Returns the number of faces removed.
+int repairPolygonMesh(Mesh& mesh, double weldTolerance = 1e-7);
+
 }  // namespace remersher

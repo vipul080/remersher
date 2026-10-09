@@ -256,4 +256,80 @@ TriangleMesh cleanupForRemeshing(const Mesh& mesh, double weldTolerance, Cleanup
     return out;
 }
 
+int repairPolygonMesh(Mesh& mesh, double weldTolerance) {
+    if (mesh.vertices.empty()) return 0;
+    Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+    for (const auto& v : mesh.vertices)
+        for (int j = 0; j < 3; ++j) lo[j] = std::min(lo[j], v[j]), hi[j] = std::max(hi[j], v[j]);
+    std::vector<Vec3> welded;
+    const std::vector<int> remap = weldVertices(mesh.vertices, weldTolerance * std::sqrt(dist2(lo, hi)), welded);
+
+    const size_t before = mesh.faces.size();
+    std::vector<std::vector<int>> faces;
+    std::unordered_map<uint64_t, std::vector<int>> bySmallestEdge;  // duplicate detection
+    for (const auto& f : mesh.faces) {
+        std::vector<int> g;
+        for (int v : f)
+            if (g.empty() || g.back() != remap[v]) g.push_back(remap[v]);
+        while (g.size() > 1 && g.front() == g.back()) g.pop_back();
+        if (g.size() < 3) continue;
+        std::vector<int> sorted = g;
+        std::sort(sorted.begin(), sorted.end());
+        if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) continue;  // folded
+        auto& bucket = bySmallestEdge[edgeKey(sorted[0], sorted[1])];
+        bool dup = false;
+        for (int other : bucket) {
+            std::vector<int> o = faces[other];
+            std::sort(o.begin(), o.end());
+            if (o == sorted) { dup = true; break; }
+        }
+        if (dup) continue;
+        bucket.push_back((int)faces.size());
+        faces.push_back(std::move(g));
+    }
+
+    // Edges with more than two faces: drop the smallest faces until the edge is manifold.
+    auto area = [&](const std::vector<int>& f) {
+        Vec3 n{0, 0, 0};
+        for (size_t i = 0; i < f.size(); ++i) {
+            const Vec3 &a = welded[f[i]], &b = welded[f[(i + 1) % f.size()]];
+            n[0] += a[1] * b[2] - a[2] * b[1], n[1] += a[2] * b[0] - a[0] * b[2], n[2] += a[0] * b[1] - a[1] * b[0];
+        }
+        return 0.5 * std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    };
+    std::vector<char> keep(faces.size(), 1);
+    for (int round = 0; round < 4; ++round) {
+        std::unordered_map<uint64_t, std::vector<int>> edgeFaces;
+        for (int fi = 0; fi < (int)faces.size(); ++fi) {
+            if (!keep[fi]) continue;
+            const auto& f = faces[fi];
+            for (size_t i = 0; i < f.size(); ++i) edgeFaces[edgeKey(f[i], f[(i + 1) % f.size()])].push_back(fi);
+        }
+        bool changed = false;
+        for (auto& [k, fs] : edgeFaces) {
+            if (fs.size() <= 2) continue;
+            std::sort(fs.begin(), fs.end(), [&](int a, int b) { return area(faces[a]) > area(faces[b]); });
+            for (size_t i = 2; i < fs.size(); ++i) keep[fs[i]] = 0, changed = true;
+        }
+        if (!changed) break;
+    }
+
+    Mesh out;
+    std::vector<int> used(welded.size(), -1);
+    for (size_t fi = 0; fi < faces.size(); ++fi) {
+        if (!keep[fi]) continue;
+        for (int& v : faces[fi]) {
+            if (used[v] < 0) {
+                used[v] = (int)out.vertices.size();
+                out.vertices.push_back(welded[v]);
+            }
+            v = used[v];
+        }
+        out.faces.push_back(std::move(faces[fi]));
+    }
+    const int removed = (int)(before - out.faces.size());
+    mesh = std::move(out);
+    return removed;
+}
+
 }  // namespace remersher

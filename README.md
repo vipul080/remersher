@@ -104,7 +104,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Engine + CLI, count calibration, crash/hang isolation, input clean-up, result validation
 - [x] Benchmark harness
 - [x] Stable solves on sliver-heavy input (isotropic resampling)
-- [ ] Remove non-manifold edges from the output
+- [x] Remove non-manifold edges and folded faces from the output
 - [ ] Better hard-edge alignment (crease edge loops)
 - [ ] Speed: large targets take 30–90 s
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
