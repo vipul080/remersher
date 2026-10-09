@@ -2,6 +2,7 @@
 
 #include "mesh_cleanup.h"
 #include "quality.h"
+#include "resample.h"
 
 #include <algorithm>
 #include <chrono>
@@ -258,7 +259,34 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     const auto start = Clock::now();
     CleanupStats cleanup;
     const TriangleMesh clean = cleanupForRemeshing(input, 1e-6, &cleanup);
-    const TriangleInput tris = toSolverInput(clean);
+    TriangleMesh solverMesh = clean;
+    const double slivers = sliverFraction(clean);
+    if (settings.resample == Resample::Always ||
+        (settings.resample == Resample::Auto && slivers > 0.05)) {
+        double area = 0;
+        for (const auto& t : clean.triangles) {
+            const auto &a = clean.vertices[t[0]], &b = clean.vertices[t[1]], &c = clean.vertices[t[2]];
+            const double u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+            const double w[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            area += 0.5 * std::sqrt(std::pow(u[1] * w[2] - u[2] * w[1], 2) + std::pow(u[2] * w[0] - u[0] * w[2], 2) +
+                                    std::pow(u[0] * w[1] - u[1] * w[0], 2));
+        }
+        // A bit finer than the solver's own working resolution (half the quad size), so
+        // adaptive sizing still has room to shrink quads in curved regions.
+        const double edge = 0.4 * std::sqrt(area / settings.targetQuadCount);
+        ResampleStats rs;
+        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? 60.0 : 0.0, 5, &rs);
+        if (log) {
+            char line[200];
+            std::snprintf(line, sizeof line,
+                          "resample: %.0f%% slivers -> %zu triangles at edge %.4g (%d splits, %d collapses, %d flips)",
+                          100 * slivers, solverMesh.triangles.size(), edge, rs.splits, rs.collapses, rs.flips);
+            log(line);
+        }
+    }
+    TriangleInput tris = toSolverInput(solverMesh);
+    bool usingResampled = solverMesh.triangles != clean.triangles;
+    int consecutiveFailures = 0;
     if (log && (cleanup.weldedVertices || cleanup.droppedTriangles || cleanup.flippedTriangles))
         log("cleanup: welded " + std::to_string(cleanup.weldedVertices) + " vertices, dropped " +
             std::to_string(cleanup.droppedTriangles) + " triangles, re-wound " +
@@ -271,6 +299,11 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     int budget = settings.targetQuadCount;
     int solves = 0, failed = 0;
     Settings attempt = settings;
+    // Least-bad result among those rejected by the quality check, returned (with a warning) only
+    // if no solve passes: a flawed mesh is more useful to the user than an error.
+    Mesh fallback;
+    double fallbackBadness = INFINITY;
+    int fallbackBudget = 0;
 
     // The face budget only sets the target edge length, so the solver's actual count drifts
     // (singularities, adaptivity, hard edges). Count scales ~linearly with the budget, so
@@ -285,6 +318,12 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             const QualityCheck qc = checkQuality(clean, result);
             ok = qc.acceptable(&why);
             if (!ok) {
+                const double badness = qc.farOutputFraction + qc.uncoveredFraction + qc.flippedFraction;
+                if (!result.faces.empty() && badness < fallbackBadness) {
+                    fallbackBadness = badness;
+                    fallback = result;
+                    fallbackBudget = budget;
+                }
                 char detail[128];
                 std::snprintf(detail, sizeof detail, " (far %.1f%%, holes %.1f%%, folded %.1f%%)",
                               100 * qc.farOutputFraction, 100 * qc.uncoveredFraction,
@@ -294,8 +333,19 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         }
         if (!ok) {
             ++failed;
+            ++consecutiveFailures;
             if (log) log("solve rejected at budget " + std::to_string(budget) + ": " + why);
             if (failed > settings.maxFailedSolves) break;
+            if (usingResampled && solves == 0 && consecutiveFailures >= 2) {
+                // Resampling can occasionally produce input the solver chokes on; fall back to the
+                // cleaned original rather than burning the remaining attempts.
+                if (log) log("falling back to the original triangulation");
+                tris = toSolverInput(clean);
+                usingResampled = false;
+                consecutiveFailures = 0;
+                budget = settings.targetQuadCount;
+                continue;
+            }
             // Failures are specific to one seed/budget combination; perturb both and retry.
             attempt.seed += 1;
             budget = std::max(1, (int)std::lround(budget * 1.03));
@@ -303,6 +353,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         }
         ++pass;
         ++solves;
+        consecutiveFailures = 0;
         const double count = (double)result.faces.size();
         const double error = std::abs(count - target) / target;
         if (log)
@@ -318,6 +369,11 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         budget = std::max(1, (int)std::lround(budget * ratio));
     }
 
+    if (best.faces.empty() && !fallback.faces.empty()) {
+        if (log) log("warning: no solve passed the quality check; returning the best attempt");
+        best = std::move(fallback);
+        bestBudget = fallbackBudget;
+    }
     if (best.faces.empty())
         throw std::runtime_error(solves ? "solver produced an empty mesh" : "all solves failed");
     if (report) {

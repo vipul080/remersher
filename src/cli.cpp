@@ -19,6 +19,8 @@ const char* kUsage =
     "      --no-adaptive        uniform quad size instead of curvature-adaptive\n"
     "      --no-hard-edges      do not align edge loops to sharp creases\n"
     "      --no-boundary        do not constrain open borders\n"
+    "      --resample <mode>    auto | always | never: isotropic resampling of the input\n"
+    "                           before solving (default auto: only for sliver-heavy input)\n"
     "      --seed <n>           solver seed (default 0)\n"
     "      --timeout <s>        per-solve time limit in seconds, 0 = none (default 120)\n"
     "  -q, --quiet              only print errors\n"
@@ -50,6 +52,13 @@ int main(int argc, char** argv) {
         else if (arg == "--no-adaptive") settings.adaptiveSize = false;
         else if (arg == "--no-hard-edges") settings.detectHardEdges = false;
         else if (arg == "--no-boundary") settings.preserveBoundary = false;
+        else if (arg == "--resample") {
+            std::string mode = value();
+            if (mode == "auto") settings.resample = remersher::Resample::Auto;
+            else if (mode == "always") settings.resample = remersher::Resample::Always;
+            else if (mode == "never") settings.resample = remersher::Resample::Never;
+            else usageError("--resample must be auto, always or never");
+        }
         else if (arg == "--seed") settings.seed = std::atoi(value().c_str());
         else if (arg == "--timeout") settings.solveTimeoutSeconds = std::atof(value().c_str());
         else if (arg == "-q" || arg == "--quiet") quiet = true;

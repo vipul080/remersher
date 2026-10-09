@@ -37,6 +37,7 @@ cmake --build build -j
 | `--no-adaptive` | off | uniform quad size instead of curvature-adaptive |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--no-boundary` | off | do not constrain open borders |
+| `--resample <mode>` | auto | `auto`, `always` or `never`: isotropic resampling of the input before solving; `auto` only resamples sliver-heavy input |
 | `--seed <n>` | 0 | solver seed; results are deterministic per seed |
 | `--timeout <s>` | 120 | per-solve time limit (0 = none) |
 
@@ -60,13 +61,17 @@ transform and materials. CI builds the zip for Linux and macOS on every push.
 
 1. **Input clean-up**: concave-safe ngon triangulation (ear clipping), tolerance welding of
    seams, removal of degenerate/duplicate faces, and consistent winding per connected piece.
-2. **Field-aligned parametrization** (QuadriFlow, Huang et al. 2018): a 4-RoSy orientation field
+2. **Isotropic resampling** (Botsch & Kobbelt) when the input has many slivers: edge splits,
+   collapses, valence flips and smoothing projected onto the input; hard edges and borders are
+   kept. This is what makes dense UV-sphere-like inputs stable.
+3. **Field-aligned parametrization** (QuadriFlow, Huang et al. 2018): a 4-RoSy orientation field
    aligned to principal curvature and sharp edges, an optional curvature-adaptive scale field,
    and a position field, solved on a multi-resolution hierarchy.
-3. **Quad extraction** with network-flow based singularity and flip removal.
-4. **Validation**: every result is checked against the input surface (stray vertices, holes,
-   folded faces); bad solves are rejected and retried with another seed.
-5. **Count calibration**: the solve is repeated with a corrected face budget until the result is
+4. **Quad extraction** with network-flow based singularity and flip removal.
+5. **Validation**: every result is checked against the input surface (stray vertices, holes,
+   folded faces); bad solves are rejected and retried with another seed; if every attempt fails, the
+   original triangulation is tried and finally the least-bad result is returned with a warning.
+6. **Count calibration**: the solve is repeated with a corrected face budget until the result is
    within `--tolerance` of the target.
 
 ## Benchmark
@@ -82,7 +87,7 @@ remesher's output on the same cases for a head-to-head comparison:
 | `angle_dev_mean`, `angle_dev_p95` | how far quad corners are from 90° |
 | `dev_mean_pct`, `hausdorff_pct` | mean / max distance to the input surface (% of bbox diagonal) |
 | `sharp_dev_pct` | how far the input's hard edges are from the nearest output edge |
-| `flipped_pct`, `nonmanifold_edges` | broken output |
+| `folded_pct`, `nonmanifold_edges` | broken output: edges where the mesh folds over itself, edges with more than two faces |
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install numpy scipy
@@ -98,7 +103,10 @@ Reference outputs are git-ignored and never committed.
 
 - [x] Engine + CLI, count calibration, crash/hang isolation, input clean-up, result validation
 - [x] Benchmark harness
-- [ ] Fix unstable solves on dense UV spheres (e.g. `sphere_32768` at high counts)
+- [x] Stable solves on sliver-heavy input (isotropic resampling)
+- [ ] Remove non-manifold edges from the output
+- [ ] Better hard-edge alignment (crease edge loops)
+- [ ] Speed: large targets take 30–90 s
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
 - [ ] Vertex-color density painting

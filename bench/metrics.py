@@ -200,6 +200,35 @@ class SurfaceQuery:
         return dist, tri
 
 
+def folded_edge_pct(mesh: PolyMesh) -> float:
+    """Share of interior edges where the output folds over itself: the two faces wind the edge in
+    the same direction, or their normals differ by more than 120 degrees. Uses only the output,
+    so it is not fooled by inputs with inconsistent winding."""
+    normals = []
+    for f in mesh.faces:
+        P = mesh.V[f]
+        normals.append(np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0))  # Newell normal
+    normals = np.asarray(normals)
+    lengths = np.linalg.norm(normals, axis=1)
+    normals = normals / np.maximum(lengths, 1e-300)[:, None]
+
+    uses: dict[tuple[int, int], list[tuple[int, bool]]] = {}
+    for fi, f in enumerate(mesh.faces):
+        for i in range(len(f)):
+            a, b = f[i], f[(i + 1) % len(f)]
+            if a != b:
+                uses.setdefault((min(a, b), max(a, b)), []).append((fi, a < b))
+    interior = folded = 0
+    for pair in uses.values():
+        if len(pair) != 2:
+            continue
+        interior += 1
+        (f0, d0), (f1, d1) = pair
+        if d0 == d1 or float(normals[f0] @ normals[f1]) < -0.5:
+            folded += 1
+    return 100.0 * folded / max(1, interior)
+
+
 def _edges(faces):
     """Map undirected edge -> number of incident faces."""
     count: dict[tuple[int, int], int] = {}
@@ -250,7 +279,7 @@ def edge_samples(mesh: PolyMesh, spacing: float):
 # Metrics where a lower value is better; used by the benchmark to decide wins and losses.
 LOWER_IS_BETTER = [
     "target_err_pct", "nonquad_pct", "irregular_pct", "angle_dev_mean", "angle_dev_p95",
-    "dev_mean_pct", "hausdorff_pct", "sharp_dev_pct", "flipped_pct", "nonmanifold_edges",
+    "dev_mean_pct", "hausdorff_pct", "sharp_dev_pct", "folded_pct", "nonmanifold_edges",
 ]
 
 
@@ -312,9 +341,7 @@ def evaluate(output: PolyMesh, reference_input: PolyMesh, target: int | None = N
     m["dev_mean_pct"] = 100.0 * float(np.concatenate([d_out_to_in, d_in_to_out]).mean()) / diag
     m["hausdorff_pct"] = 100.0 * float(max(d_out_to_in.max(), d_in_to_out.max())) / diag
 
-    out_normals, _ = _tri_normals(output.V, Tout)
-    dots = (out_normals[tri_out] * in_query.normals[nearest_in]).sum(-1)
-    m["flipped_pct"] = 100.0 * float((dots < 0).mean())
+    m["folded_pct"] = folded_edge_pct(output)
 
     # --- hard edges -------------------------------------------------------------------------
     spacing = diag / 3000.0

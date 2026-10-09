@@ -34,7 +34,7 @@ import metrics  # noqa: E402
 TIE_EPS = {
     "target_err_pct": 1.0, "nonquad_pct": 0.5, "irregular_pct": 0.5, "angle_dev_mean": 0.5,
     "angle_dev_p95": 1.0, "dev_mean_pct": 0.02, "hausdorff_pct": 0.1, "sharp_dev_pct": 0.02,
-    "flipped_pct": 0.1, "nonmanifold_edges": 0,
+    "folded_pct": 0.1, "nonmanifold_edges": 0,
 }
 TIE_REL = 0.05
 
@@ -43,7 +43,7 @@ TABLE_COLS = [
     ("nonquad_pct", "non-quad %", "{:.1f}"), ("irregular_pct", "poles %", "{:.1f}"),
     ("angle_dev_mean", "angle dev°", "{:.1f}"), ("dev_mean_pct", "mean dev %", "{:.3f}"),
     ("hausdorff_pct", "hausdorff %", "{:.2f}"), ("sharp_dev_pct", "crease dev %", "{:.3f}"),
-    ("flipped_pct", "flipped %", "{:.1f}"),
+    ("folded_pct", "folded %", "{:.2f}"),
 ]
 
 

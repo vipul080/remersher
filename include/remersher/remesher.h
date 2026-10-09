@@ -7,6 +7,12 @@
 
 namespace remersher {
 
+enum class Resample {
+    Auto,    // resample when the input has many sliver triangles
+    Always,  // always resample to an isotropic triangulation first
+    Never,
+};
+
 struct Settings {
     // Desired number of quads in the output.
     int targetQuadCount = 5000;
@@ -20,6 +26,9 @@ struct Settings {
     bool detectHardEdges = true;
     // Keep open borders of the input as borders of the output.
     bool preserveBoundary = true;
+    // Isotropic resampling of the input before solving. The field solver is unstable on inputs
+    // with many slivers (e.g. dense UV spheres); resampling fixes that at some extra cost.
+    Resample resample = Resample::Auto;
     // Seed for the randomized parts of the solver; results are deterministic per seed.
     int seed = 0;
     // Per-solve time limit. On POSIX each solve runs in a child process, so a solve that hangs or
