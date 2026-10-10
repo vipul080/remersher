@@ -33,7 +33,7 @@ cmake --build build -j
 |---|---|---|
 | `-t, --target <n>` | 5000 | target quad count |
 | `--passes <n>` | 6 | extra solves used to land close to the target count |
-| `-j, --jobs <n>` | 3 | calibration solves run in parallel (macOS / Linux) |
+| `-j, --jobs <n>` | 3 | calibration solves run in parallel (macOS, Linux) |
 | `--tolerance <f>` | 0.03 | stop calibrating once within this fraction of the target |
 | `--curvature <f>` | 0.5 | how strongly edge loops follow principal curvature (0 = off, 1 = strongest) |
 | `--relax <n>` | 1 | tangential relaxation rounds on the final mesh (more = more even quads, less adaptive sizing) |
@@ -66,10 +66,11 @@ In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick th
 The **Remersher** tab in the 3D view sidebar mirrors the familiar retopology workflow: Quad Count,
 Adaptive Size, Detect Hard Edges by angle, Preserve Borders, Use Vertex Color (density paint with
 the active color attribute), Use Materials, Use Normals Splitting (edges marked sharp), Symmetry
-X/Y/Z and Seed, with a
-**Remesh It** button; the result is added as `Retopo_<name>`. It runs in the background (Esc cancels), remeshes the
-active object with its modifiers applied, and adds the result as a new object with the same
-transform and materials (each new face gets the material of the face under it). CI builds the zip for Linux and macOS on every push and runs it inside Blender
+X/Y/Z and Seed, with a **Remesh It** button. It runs in the background (Esc cancels), remeshes
+the active object with its modifiers applied, and adds the result as `Retopo_<name>` with the same
+transform and materials (each new face gets the material of the face under it).
+
+CI builds the add-on for macOS, Linux and Windows on every push and runs it inside Blender
 (`tests/blender_smoke.py`).
 
 ## How it works
@@ -81,8 +82,8 @@ transform and materials (each new face gets the material of the face under it). 
    kept. This is what makes dense UV-sphere-like inputs stable.
 3. **Field-aligned parametrization** (QuadriFlow, Huang et al. 2018): a 4-RoSy orientation field
    aligned to sharp edges and, where the curvature direction is strong and coherent over a few
-   quads (tubes, tori, limbs), softly to principal curvature, an optional curvature-adaptive scale field,
-   and a position field, solved on a multi-resolution hierarchy.
+   quads (tubes, tori, limbs), softly to principal curvature; a sizing field (curvature,
+   density paint); and a position field, solved on a multi-resolution hierarchy.
 4. **Quad extraction** with network-flow based singularity and flip removal.
 5. **Feature snapping, pole clean-up and relaxation**: output vertices near input corners, hard
    edges and borders are moved exactly onto them (growing chains along creases from the corners);

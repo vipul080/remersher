@@ -51,7 +51,7 @@ class RemersherSettings(bpy.types.PropertyGroup):
         name="Detect Hard Edges by angle", default=True,
         description="Align edge loops to creases sharper than the angle below")
     hard_edge_angle: bpy.props.FloatProperty(
-        name="Angle", default=45.0, min=1.0, max=179.0, subtype="NONE",
+        name="Angle", default=50.0, min=1.0, max=179.0, subtype="NONE",
         description="Dihedral angle (degrees) above which an edge counts as hard")
     preserve_boundary: bpy.props.BoolProperty(
         name="Preserve Borders", default=True,

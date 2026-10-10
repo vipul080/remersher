@@ -47,7 +47,7 @@ def test_build_command():
     assert cmd[cmd.index("--seed") + 1] == "7"
     assert cmd[cmd.index("--adaptivity") + 1] == "0"
     assert "--no-boundary" in cmd
-    assert cmd[cmd.index("--hard-angle") + 1] == "45" and "--no-hard-edges" not in cmd
+    assert cmd[cmd.index("--hard-angle") + 1] == "50" and "--no-hard-edges" not in cmd
     assert "--symmetry" not in cmd and "--vertex-color" not in cmd
     assert "--vertex-color" in core.build_command("r", "a", "b", core.RemeshSettings(use_vertex_color=True))
     cmd = core.build_command("/bin/remersher", "a.obj", "b.obj", core.RemeshSettings(symmetry="Xz"))

@@ -16,7 +16,7 @@ class RemeshSettings:
     target_quad_count: int = 5000
     adaptivity: int = 50  # 0 = uniform quad size, 100 = strongest curvature adaptivity
     detect_hard_edges: bool = True
-    hard_edge_angle: float = 45.0
+    hard_edge_angle: float = 50.0
     preserve_boundary: bool = True
     seed: int = 0
     symmetry: str = ""  # any of "x", "y", "z"

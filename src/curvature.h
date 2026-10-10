@@ -17,7 +17,8 @@ int addCurvatureConstraints(qflow::Hierarchy& h, double strength);
 
 // Shrinks the solver's sizing field where the surface is strongly curved, so quads get smaller
 // there and larger in flat regions. adaptivity is the 0..100 slider value; up to 50 the field is
-// left untouched, above 50 curvature sizing is blended in. The field keeps a mean of 1, so the face budget still sets the overall density.
+// left untouched, above 50 curvature sizing is blended in. The field keeps a mean of 1, so the
+// face budget still sets the overall density.
 void applyCurvatureSizing(qflow::Hierarchy& h, double adaptivity);
 
 // Copies the finest level's sizing field (mS[0]) down the hierarchy to the coarser levels.
