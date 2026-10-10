@@ -144,7 +144,7 @@ void Parametrizer::ComputeSharpEdges() {
         face_normals[i] = (p2 - p1).cross(p3 - p1).normalized();
     }
 
-    double cos_thres = cos(60.0/180.0*3.141592654);
+    double cos_thres = cos(sharp_angle_degrees/180.0*3.141592654);
     for (int i = 0; i < sharp_edges.size(); ++i) {
         int e = i;
         int re = E2E[e];

@@ -67,3 +67,22 @@ jobs:
             ./build/remersher -i meshes/$m.obj -o $m.out.obj -t 1000 --timeout 60
             test "$(grep -c '^f ' $m.out.obj)" -gt 100
           done
+
+  blender:
+    # Installs the packaged add-on in a real Blender and remeshes a mesh through it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libeigen3-dev libboost-dev libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 libxkbcommon0 libsm6
+      - name: Build and package
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4
+          ./scripts/package_addon.sh
+      - name: Download Blender
+        run: |
+          curl -sSL -o blender.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.3-linux-x64.tar.xz
+          tar -xf blender.tar.xz
+      - name: Add-on smoke test
+        run: ./blender-4.2.3-linux-x64/blender -b --factory-startup --python tests/blender_smoke.py -- dist/remersher_blender-linux-x86_64.zip

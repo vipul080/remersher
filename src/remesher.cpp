@@ -87,8 +87,9 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
     field->F = input.F;
     field->NormalizeMesh();
     field->flag_preserve_sharp = s.detectHardEdges ? 1 : 0;
+    field->sharp_angle_degrees = s.hardEdgeAngle;
     field->flag_preserve_boundary = s.preserveBoundary ? 1 : 0;
-    field->flag_adaptive_scale = s.adaptiveSize ? 1 : 0;
+    field->flag_adaptive_scale = s.adaptivity > 0 ? 1 : 0;
     field->hierarchy.rng_seed = s.seed;
 
     field->Initialize(faceBudget);
@@ -115,7 +116,7 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
         // Constrain the fields to run along hard edges, as QuadriFlow does for borders. Without
         // this the orientation field ignores creases and only the later integer stage tries to
         // pull edge loops onto them, which leaves misplaced corner singularities.
-        const double cosHard = std::cos(60.0 * M_PI / 180.0);
+        const double cosHard = std::cos(s.hardEdgeAngle * M_PI / 180.0);
         std::vector<std::vector<qflow::Vector3d>> dirs(h.mV[0].cols());
         auto faceNormal = [&](uint32_t e) {
             const uint32_t f = e / 3;
@@ -160,10 +161,14 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
     field->ComputeOrientationSingularities();
     if (field->flag_adaptive_scale) field->EstimateSlope();
     qflow::Optimizer::optimize_scale(field->hierarchy, field->rho, field->flag_adaptive_scale);
+    // QuadriFlow's own "adaptive" field only varies by about +-25% (it mostly follows the field's
+    // slope); add a curvature-driven size on top so the slider behaves like users expect.
+    applyCurvatureSizing(field->hierarchy, s.adaptivity);
     field->flag_adaptive_scale = 1;  // the position solve always uses the scale field
     qflow::Optimizer::optimize_positions(field->hierarchy, field->flag_adaptive_scale);
     field->ComputePositionSingularities();
-    field->ComputeIndexMap();
+    // Upstream calls this without the sizing field, which made "adaptive" output uniform.
+    field->ComputeIndexMap(s.adaptivity > 50 ? 1 : 0);
 
     return fromParametrizer(*field);
 }
@@ -390,7 +395,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         // adaptive sizing still has room to shrink quads in curved regions.
         const double edge = 0.4 * std::sqrt(area / settings.targetQuadCount);
         ResampleStats rs;
-        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? 60.0 : 0.0, 5, &rs);
+        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, 5, &rs);
         if (log) {
             char line[200];
             std::snprintf(line, sizeof line,
@@ -424,7 +429,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     auto finish = [&](SolveOutcome& o, int budgetUsed) {
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
-        snapToFeatures(o.mesh, clean, settings.detectHardEdges ? 60.0 : 0.0, settings.relaxIterations,
+        snapToFeatures(o.mesh, clean, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, settings.relaxIterations,
                        settings.cleanupPoles);
         repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
         // The solver occasionally collapses or folds whole regions without reporting an error;

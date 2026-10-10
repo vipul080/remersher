@@ -14,8 +14,9 @@ BINARY_NAME = "remersher.exe" if sys.platform == "win32" else "remersher"
 @dataclass
 class RemeshSettings:
     target_quad_count: int = 5000
-    adaptive_size: bool = True
+    adaptivity: int = 50  # 0 = uniform quad size, 100 = strongest curvature adaptivity
     detect_hard_edges: bool = True
+    hard_edge_angle: float = 45.0
     preserve_boundary: bool = True
     seed: int = 0
     symmetry: str = ""  # any of "x", "y", "z"
@@ -30,7 +31,15 @@ def find_binary(addon_dir: str, preferred: str = "") -> str | None:
         candidates.append(os.path.expanduser(preferred))
     candidates.append(os.path.join(addon_dir, "bin", BINARY_NAME))
     for path in candidates:
-        if os.path.isfile(path) and os.access(path, os.X_OK):
+        if not os.path.isfile(path):
+            continue
+        if not os.access(path, os.X_OK):
+            # Blender installs add-ons with zipfile, which drops the executable bit.
+            try:
+                os.chmod(path, os.stat(path).st_mode | 0o111)
+            except OSError:
+                continue
+        if os.access(path, os.X_OK):
             return path
     return shutil.which("remersher")
 
@@ -41,10 +50,11 @@ def build_command(binary: str, in_path: str, out_path: str, s: RemeshSettings) -
     axes = "".join(a for a in "xyz" if a in s.symmetry.lower())
     if axes:
         cmd += ["--symmetry", axes]
-    if not s.adaptive_size:
-        cmd.append("--no-adaptive")
+    cmd += ["--adaptivity", str(int(s.adaptivity))]
     if not s.detect_hard_edges:
         cmd.append("--no-hard-edges")
+    else:
+        cmd += ["--hard-angle", "%g" % s.hard_edge_angle]
     if not s.preserve_boundary:
         cmd.append("--no-boundary")
     return cmd

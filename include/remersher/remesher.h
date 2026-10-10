@@ -25,10 +25,13 @@ struct Settings {
     int maxParallelSolves = 3;
     // Stop calibrating once the result is within this fraction of the target.
     double countTolerance = 0.03;
-    // Let quads get smaller in high-curvature regions and larger in flat regions.
-    bool adaptiveSize = true;
+    // How much quads shrink in curved regions and grow in flat ones: 0 = uniform size,
+    // 50 = default (mild), 51..100 = increasingly curvature-driven sizing.
+    double adaptivity = 50;
     // Align edge loops to sharp creases of the input.
     bool detectHardEdges = true;
+    // Dihedral angle (degrees) above which an edge counts as hard.
+    double hardEdgeAngle = 50.0;
     // How strongly edge loops follow principal curvature directions (0 = only smoothness, as in
     // plain QuadriFlow; 1 = strongest). Matters on tubes, tori and other anisotropic shapes.
     double curvatureAlignment = 0.5;

@@ -28,13 +28,15 @@ def test_obj_round_trip(tmp):
 
 
 def test_build_command():
-    s = core.RemeshSettings(target_quad_count=1234, adaptive_size=False, detect_hard_edges=True,
+    s = core.RemeshSettings(target_quad_count=1234, adaptivity=0, detect_hard_edges=True,
                             preserve_boundary=False, seed=7, timeout=30)
     cmd = core.build_command("/bin/remersher", "a.obj", "b.obj", s)
     assert cmd[:5] == ["/bin/remersher", "-i", "a.obj", "-o", "b.obj"], cmd
     assert cmd[cmd.index("--target") + 1] == "1234"
     assert cmd[cmd.index("--seed") + 1] == "7"
-    assert "--no-adaptive" in cmd and "--no-boundary" in cmd and "--no-hard-edges" not in cmd
+    assert cmd[cmd.index("--adaptivity") + 1] == "0"
+    assert "--no-boundary" in cmd
+    assert cmd[cmd.index("--hard-angle") + 1] == "45" and "--no-hard-edges" not in cmd
     assert "--symmetry" not in cmd
     cmd = core.build_command("/bin/remersher", "a.obj", "b.obj", core.RemeshSettings(symmetry="Xz"))
     assert cmd[cmd.index("--symmetry") + 1] == "xz"
@@ -42,6 +44,14 @@ def test_build_command():
 
 def test_find_binary(tmp, binary):
     assert core.find_binary(tmp, binary) == binary
+    # A bundled copy that lost its executable bit (zip install) is repaired and used.
+    bundled = os.path.join(tmp, "bin", core.BINARY_NAME)
+    os.makedirs(os.path.dirname(bundled), exist_ok=True)
+    with open(binary, "rb") as src, open(bundled, "wb") as dst:
+        dst.write(src.read())
+    os.chmod(bundled, 0o644)
+    assert core.find_binary(tmp) == bundled and os.access(bundled, os.X_OK)
+    os.remove(bundled)
     assert core.find_binary(tmp, os.path.join(tmp, "missing")) in (None, core.shutil.which("remersher"))
 
 

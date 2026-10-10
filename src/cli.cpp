@@ -18,7 +18,9 @@ const char* kUsage =
     "      --passes <n>         extra solves to hit the target count (default 6)\n"
     "  -j, --jobs <n>           calibration solves run in parallel (default 3)\n"
     "      --tolerance <f>      acceptable count error as a fraction (default 0.03)\n"
-    "      --no-adaptive        uniform quad size instead of curvature-adaptive\n"
+    "      --adaptivity <0-100> quad size variation with curvature (default 50, 0 = uniform)\n"
+    "      --no-adaptive        same as --adaptivity 0\n"
+    "      --hard-angle <deg>   dihedral angle above which an edge is hard (default 50)\n"
     "      --no-hard-edges      do not align edge loops to sharp creases\n"
     "      --curvature <f>      edge-loop alignment to curvature, 0..1 (default 0.5)\n"
     "      --relax <n>          relaxation rounds on the final mesh (default 1)\n"
@@ -56,7 +58,9 @@ int main(int argc, char** argv) {
         else if (arg == "--passes") settings.countCalibrationPasses = std::atoi(value().c_str());
         else if (arg == "-j" || arg == "--jobs") settings.maxParallelSolves = std::atoi(value().c_str());
         else if (arg == "--tolerance") settings.countTolerance = std::atof(value().c_str());
-        else if (arg == "--no-adaptive") settings.adaptiveSize = false;
+        else if (arg == "--no-adaptive") settings.adaptivity = 0;
+        else if (arg == "--adaptivity") settings.adaptivity = std::atof(value().c_str());
+        else if (arg == "--hard-angle") settings.hardEdgeAngle = std::atof(value().c_str());
         else if (arg == "--no-hard-edges") settings.detectHardEdges = false;
         else if (arg == "--curvature") settings.curvatureAlignment = std::atof(value().c_str());
         else if (arg == "--relax") settings.relaxIterations = std::atoi(value().c_str());

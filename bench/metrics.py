@@ -179,9 +179,12 @@ class SurfaceQuery:
         self.V, self.T, self.k = V, T, min(k, len(T))
         self.normals, _ = _tri_normals(V, T)
         cent = V[T].mean(axis=1)
-        # Seed points: centroids plus vertices, so long thin triangles are still found.
-        seeds = np.concatenate([cent, V[T[:, 0]], V[T[:, 1]], V[T[:, 2]]])
-        self.seed_tri = np.concatenate([np.arange(len(T))] * 4)
+        # Seed points: centroids, vertices and area-weighted surface samples, so long thin
+        # triangles (e.g. fan-split CAD faces) are still found near every point they cover.
+        rng = np.random.default_rng(12345)
+        extra, extra_tri = sample_surface(V, T, max(50000, 4 * len(T)), rng)
+        seeds = np.concatenate([cent, V[T[:, 0]], V[T[:, 1]], V[T[:, 2]], extra])
+        self.seed_tri = np.concatenate([np.arange(len(T))] * 4 + [extra_tri])
         self.tree = cKDTree(seeds)
 
     def query(self, P, chunk=20000):

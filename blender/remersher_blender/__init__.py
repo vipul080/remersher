@@ -40,14 +40,17 @@ class RemersherPreferences(bpy.types.AddonPreferences):
 
 class RemersherSettings(bpy.types.PropertyGroup):
     target_quad_count: bpy.props.IntProperty(
-        name="Target Quad Count", default=5000, min=10, soft_max=100000,
+        name="Quad Count", default=5000, min=10, soft_max=100000,
         description="Approximate number of quads in the result")
-    adaptive_size: bpy.props.BoolProperty(
-        name="Adaptive Size", default=True,
-        description="Smaller quads in curved regions, larger quads in flat regions")
+    adaptivity: bpy.props.IntProperty(
+        name="Adaptive Size", default=50, min=0, max=100, subtype="PERCENTAGE",
+        description="How much quads shrink in curved regions and grow in flat ones (0 = uniform)")
     detect_hard_edges: bpy.props.BoolProperty(
-        name="Detect Hard Edges", default=True,
-        description="Align edge loops to sharp creases")
+        name="Detect Hard Edges by angle", default=True,
+        description="Align edge loops to creases sharper than the angle below")
+    hard_edge_angle: bpy.props.FloatProperty(
+        name="Angle", default=45.0, min=1.0, max=179.0, subtype="NONE",
+        description="Dihedral angle (degrees) above which an edge counts as hard")
     preserve_boundary: bpy.props.BoolProperty(
         name="Preserve Borders", default=True,
         description="Keep open borders of the mesh")
@@ -98,23 +101,22 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         obj = context.active_object
         return obj is not None and obj.type == "MESH" and context.mode == "OBJECT"
 
-    def invoke(self, context, event):
+    def _start(self, context):
+        """Exports the mesh and launches the CLI. Returns an error message, or None."""
         prefs = context.preferences.addons[__package__].preferences
         binary = core.find_binary(ADDON_DIR, prefs.binary_path)
         if not binary:
-            self.report({"ERROR"}, "remersher executable not found; set it in the add-on preferences")
-            return {"CANCELLED"}
-
+            return "remersher executable not found; set it in the add-on preferences"
         obj = context.active_object
         verts, faces = _mesh_arrays(obj, context.evaluated_depsgraph_get())
         if not faces:
-            self.report({"ERROR"}, "Mesh has no faces")
-            return {"CANCELLED"}
+            return "Mesh has no faces"
 
         s = context.scene.remersher
         settings = core.RemeshSettings(
-            target_quad_count=s.target_quad_count, adaptive_size=s.adaptive_size,
-            detect_hard_edges=s.detect_hard_edges, preserve_boundary=s.preserve_boundary,
+            target_quad_count=s.target_quad_count, adaptivity=s.adaptivity,
+            detect_hard_edges=s.detect_hard_edges, hard_edge_angle=s.hard_edge_angle,
+            preserve_boundary=s.preserve_boundary,
             seed=s.seed,
             symmetry=("x" if s.symmetry_x else "") + ("y" if s.symmetry_y else "") + ("z" if s.symmetry_z else ""))
 
@@ -128,21 +130,10 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         self._proc = subprocess.Popen(core.build_command(binary, in_path, self._out_path, settings),
                                       stdout=subprocess.DEVNULL, stderr=self._log)
         self._source_name = obj.name
-        self._timer = context.window_manager.event_timer_add(0.2, window=context.window)
-        context.window_manager.modal_handler_add(self)
-        context.workspace.status_text_set("Remersher: remeshing… (Esc to cancel)")
-        return {"RUNNING_MODAL"}
+        return None
 
-    def modal(self, context, event):
-        if event.type == "ESC":
-            self._proc.kill()
-            self._proc.wait()
-            self._finish(context)
-            self.report({"WARNING"}, "Remesh cancelled")
-            return {"CANCELLED"}
-        if event.type != "TIMER" or self._proc.poll() is None:
-            return {"PASS_THROUGH"}
-
+    def _complete(self, context):
+        """Reads the CLI's result once the process has exited and builds the new object."""
         code = self._proc.returncode
         self._log.close()
         with open(self._log_path) as fh:
@@ -163,8 +154,38 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         self.report({"INFO"}, f"Remersher: {len(faces)} faces ({quads} quads) → {result.name}")
         return {"FINISHED"}
 
+    def execute(self, context):
+        # Blocking path, used from scripts and in background mode where modal timers do not run.
+        error = self._start(context)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+        self._proc.wait()
+        return self._complete(context)
+
+    def invoke(self, context, event):
+        error = self._start(context)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+        self._timer = context.window_manager.event_timer_add(0.2, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set("Remersher: remeshing… (Esc to cancel)")
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            self._proc.kill()
+            self._proc.wait()
+            self._finish(context)
+            self.report({"WARNING"}, "Remesh cancelled")
+            return {"CANCELLED"}
+        if event.type != "TIMER" or self._proc.poll() is None:
+            return {"PASS_THROUGH"}
+        return self._complete(context)
+
     def _create_object(self, context, source, verts, faces):
-        mesh = bpy.data.meshes.new(source.name + "_Remesh")
+        mesh = bpy.data.meshes.new("Retopo_" + source.name)
         mesh.from_pydata(verts, [], faces)
         mesh.validate()
         mesh.update()
@@ -189,7 +210,8 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
-        context.workspace.status_text_set(None)
+        if context.workspace:
+            context.workspace.status_text_set(None)
         if self._log and not self._log.closed:
             self._log.close()
         if self._workdir:
@@ -211,19 +233,26 @@ class REMERSHER_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         s = context.scene.remersher
+        layout.operator(REMERSHER_OT_remesh.bl_idname, text="Remesh It", icon="MOD_REMESH")
         layout.prop(s, "target_quad_count")
-        col = layout.column(align=True)
-        col.prop(s, "adaptive_size")
-        col.prop(s, "detect_hard_edges")
-        col.prop(s, "preserve_boundary")
+        layout.prop(s, "adaptivity", text="Adaptive Size", slider=True)
+
+        box = layout.box()
+        row = box.row()
+        row.prop(s, "detect_hard_edges")
+        sub = row.row()
+        sub.enabled = s.detect_hard_edges
+        sub.prop(s, "hard_edge_angle", text="")
+        box.prop(s, "preserve_boundary")
+
         row = layout.row(align=True)
         row.label(text="Symmetry")
         row.prop(s, "symmetry_x", toggle=True)
         row.prop(s, "symmetry_y", toggle=True)
         row.prop(s, "symmetry_z", toggle=True)
-        layout.prop(s, "seed")
+
         layout.prop(s, "hide_original")
-        layout.operator(REMERSHER_OT_remesh.bl_idname, icon="MOD_REMESH")
+        layout.prop(s, "seed")
 
 
 classes = (RemersherPreferences, RemersherSettings, REMERSHER_OT_remesh, REMERSHER_PT_panel)

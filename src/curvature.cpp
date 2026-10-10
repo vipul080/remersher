@@ -9,14 +9,24 @@ namespace remersher {
 using qflow::Hierarchy;
 using qflow::Vector3d;
 
-int addCurvatureConstraints(Hierarchy& h, double strength) {
-    if (strength <= 0 || h.mV.empty()) return 0;
+namespace {
+
+struct CurvatureField {
+    std::vector<std::vector<int>> nbrs;
+    std::vector<Eigen::Matrix3d> tensor;  // smoothed shape operator as a 3D tangent tensor
+    std::vector<char> valid;
+};
+
+CurvatureField estimateCurvature(const Hierarchy& h) {
+    CurvatureField cf;
     const auto& V = h.mV[0];
     const auto& N = h.mN[0];
     const auto& F = h.mF;
     const int n = (int)V.cols();
-
-    std::vector<std::vector<int>> nbrs(n);
+    auto& nbrs = cf.nbrs;
+    auto& tensor = cf.tensor;
+    auto& valid = cf.valid;
+    nbrs.assign(n, {});
     for (int f = 0; f < F.cols(); ++f)
         for (int i = 0; i < 3; ++i) {
             int a = F(i, f), b = F((i + 1) % 3, f);
@@ -31,8 +41,8 @@ int addCurvatureConstraints(Hierarchy& h, double strength) {
     // Per-vertex shape operator, fitted by least squares to the normal curvatures along the edges
     // to its neighbours (kn = 2 n.(vj - vi) / |vj - vi|^2), stored as a 3D tangent tensor so
     // neighbouring estimates can be averaged.
-    std::vector<Eigen::Matrix3d> tensor(n, Eigen::Matrix3d::Zero());
-    std::vector<char> valid(n, 0);
+    tensor.assign(n, Eigen::Matrix3d::Zero());
+    valid.assign(n, 0);
     for (int v = 0; v < n; ++v) {
         const Vector3d nv = N.col(v);
         if (nbrs[v].size() < 3 || nv.squaredNorm() < 0.5) continue;
@@ -74,6 +84,20 @@ int addCurvatureConstraints(Hierarchy& h, double strength) {
         }
         tensor.swap(next);
     }
+
+    return cf;
+}
+
+}  // namespace
+
+int addCurvatureConstraints(Hierarchy& h, double strength) {
+    if (strength <= 0 || h.mV.empty()) return 0;
+    const auto& N = h.mN[0];
+    const int n = (int)h.mV[0].cols();
+    CurvatureField cf = estimateCurvature(h);
+    const auto& nbrs = cf.nbrs;
+    const auto& tensor = cf.tensor;
+    const auto& valid = cf.valid;
 
     // Principal direction and weight per vertex.
     std::vector<Vector3d> dir(n, Vector3d::Zero());
@@ -134,6 +158,75 @@ int addCurvatureConstraints(Hierarchy& h, double strength) {
         ++constrained;
     }
     return constrained;
+}
+
+void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
+    if (adaptivity <= 0 || h.mV.empty() || h.mS.empty()) return;
+    const auto& N = h.mN[0];
+    const int n = (int)h.mV[0].cols();
+    CurvatureField cf = estimateCurvature(h);
+
+    // Curvature magnitude sqrt(k1^2 + k2^2) per vertex.
+    std::vector<double> kappa(n, 0.0);
+    double meanKappa = 0;
+    int counted = 0;
+    for (int v = 0; v < n; ++v) {
+        if (!cf.valid[v]) continue;
+        const Vector3d nv = N.col(v);
+        Vector3d u = std::abs(nv.x()) < 0.9 ? Vector3d(1, 0, 0) : Vector3d(0, 1, 0);
+        u = (u - nv * nv.dot(u)).normalized();
+        const Vector3d w = nv.cross(u);
+        const double a = u.dot(cf.tensor[v] * u), b = u.dot(cf.tensor[v] * w), c = w.dot(cf.tensor[v] * w);
+        kappa[v] = std::sqrt(a * a + 2 * b * b + c * c);
+        meanKappa += kappa[v];
+        ++counted;
+    }
+    if (!counted) return;
+    meanKappa /= counted;
+    // Flat (or nearly flat) input: nothing to adapt to, and the ratios below would be 0/0.
+    if (!(meanKappa * h.mScale > 1e-6)) return;
+    // Relative quad size (kappa_mean / kappa)^gamma: at slider 100 the edge length is inversely
+    // proportional to curvature, at 75 to its square root. The quarter-mean offset keeps flat
+    // regions finite; sizes are clamped to 1/4..4 of the base size.
+    // Up to 50 (the default) the solver's own mild adaptivity is used as is; 50..100 blends in
+    // curvature-driven sizing. Applying it at the default distorted quads across the benchmark.
+    const double gamma = std::clamp((adaptivity - 50.0) / 50.0, 0.0, 1.0);
+    if (gamma <= 0) return;
+    std::vector<double> logSize(n, 0.0);
+    for (int v = 0; v < n; ++v) {
+        if (!cf.valid[v]) continue;
+        const double ratio = (meanKappa * 1.25) / (kappa[v] + 0.25 * meanKappa);
+        logSize[v] = std::clamp(gamma * std::log(ratio), std::log(0.25), std::log(4.0));
+    }
+    // Smooth in log space so the size changes gradually (quad meshes need room to change density).
+    for (int round = 0; round < 8; ++round) {
+        std::vector<double> next = logSize;
+        for (int v = 0; v < n; ++v) {
+            double sum = logSize[v];
+            for (int j : cf.nbrs[v]) sum += logSize[j];
+            next[v] = sum / (1 + cf.nbrs[v].size());
+        }
+        logSize.swap(next);
+    }
+    std::vector<double> size(n);
+    for (int v = 0; v < n; ++v) size[v] = std::exp(logSize[v]);
+    // Keep the mean at 1 so the face budget still means the same thing.
+    double mean = 0;
+    for (double x : size) mean += x;
+    mean /= std::max(1, n);
+    auto& S = h.mS[0];
+    for (int v = 0; v < n; ++v) {
+        S(0, v) *= size[v] / mean;
+        S(1, v) *= size[v] / mean;
+    }
+    for (size_t l = 0; l + 1 < h.mS.size(); ++l) {
+        const auto& toUpper = h.mToUpper[l];
+        for (int i = 0; i < toUpper.cols(); ++i) {
+            const int u0 = toUpper(0, i), u1 = toUpper(1, i);
+            if (u1 != -1) h.mS[l + 1].col(i) = 0.5 * (h.mS[l].col(u0) + h.mS[l].col(u1));
+            else h.mS[l + 1].col(i) = h.mS[l].col(u0);
+        }
+    }
 }
 
 }  // namespace remersher

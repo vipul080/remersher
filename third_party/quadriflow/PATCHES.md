@@ -11,4 +11,6 @@ QuadriFlow is vendored (see UPSTREAM.txt) because remersher modifies the solver.
   solved with conjugate gradients instead of sparse LU, which was ~65% of solve time.
 - `src/hierarchy.cpp` (`propagateConstraints`): soft constraint weights are averaged onto
   coarser levels instead of being forced to 1; hard weights (borders) behave as before.
+- `src/parametrizer.hpp`, `src/parametrizer-mesh.cpp`: the hard-edge angle (was fixed at 60 degrees)
+  is a member, `sharp_angle_degrees`.
 - `3rd/MapleCOMSPS_LRB`: not vendored (only used by an optional SAT path that is not built).

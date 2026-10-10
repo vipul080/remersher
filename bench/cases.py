@@ -22,7 +22,7 @@ PARAMSETS = {
 CORE = ["P0", "P1", "P2"]
 EXTRA = ["P3", "P4", "P5", "P6", "P7", "P8", "P9"]
 ALL_MESHES = ["sphere_4160", "sphere_32768", "cube", "ngon_cube", "stair", "torus",
-              "plane_hole", "gear", "bumpy", "twospheres"]
+              "plane_hole", "gear", "bumpy", "twospheres", "dice"]
 EXTRA_MESHES = ["sphere_4160", "gear", "bumpy", "plane_hole"]
 
 
@@ -47,11 +47,7 @@ def to_cli_args(params: dict, target: int) -> tuple[list[str], list[str]]:
     unsupported = []
     if params.get("ExactQuadCount"):
         args += ["--passes", "5", "--tolerance", "0.005"]
-    # remersher's adaptivity is on/off for now; low adaptiveness maps to uniform sizing.
-    if params.get("CurvatureAdaptivness", 50) < 25:
-        args.append("--no-adaptive")
-    elif params.get("CurvatureAdaptivness", 50) not in (50,):
-        unsupported.append(f"CurvatureAdaptivness={params['CurvatureAdaptivness']} (binary only)")
+    args += ["--adaptivity", str(params.get("CurvatureAdaptivness", 50))]
     if not params.get("AutoDetectHardEdges", 1):
         args.append("--no-hard-edges")
     if "SymAxis" in params:

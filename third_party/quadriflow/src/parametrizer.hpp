@@ -162,6 +162,7 @@ class Parametrizer {
 
     // flag
     int flag_preserve_sharp = 0;
+    double sharp_angle_degrees = 60.0;  // remersher: configurable hard-edge threshold
     int flag_preserve_boundary = 0;
     int flag_adaptive_scale = 0;
     int flag_aggresive_sat = 0;
