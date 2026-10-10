@@ -23,6 +23,7 @@ const char* kUsage =
     "      --curvature <f>      edge-loop alignment to curvature, 0..1 (default 0.5)\n"
     "      --relax <n>          relaxation rounds on the final mesh (default 1)\n"
     "      --no-pole-cleanup    keep the solver's singularities as they are\n"
+    "      --symmetry <axes>    mirror symmetry, any of x, y, z (e.g. x or xz)\n"
     "      --no-boundary        do not constrain open borders\n"
     "      --resample <mode>    auto | always | never: isotropic resampling of the input\n"
     "                           before solving (default auto: only for sliver-heavy input)\n"
@@ -60,6 +61,14 @@ int main(int argc, char** argv) {
         else if (arg == "--curvature") settings.curvatureAlignment = std::atof(value().c_str());
         else if (arg == "--relax") settings.relaxIterations = std::atoi(value().c_str());
         else if (arg == "--no-pole-cleanup") settings.cleanupPoles = false;
+        else if (arg == "--symmetry") {
+            for (char c : value()) {
+                if (c == 'x' || c == 'X') settings.symmetryAxes |= 1;
+                else if (c == 'y' || c == 'Y') settings.symmetryAxes |= 2;
+                else if (c == 'z' || c == 'Z') settings.symmetryAxes |= 4;
+                else usageError("--symmetry takes a combination of x, y and z");
+            }
+        }
         else if (arg == "--no-boundary") settings.preserveBoundary = false;
         else if (arg == "--resample") {
             std::string mode = value();

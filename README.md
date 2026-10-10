@@ -38,6 +38,7 @@ cmake --build build -j
 | `--curvature <f>` | 0.5 | how strongly edge loops follow principal curvature (0 = off, 1 = strongest) |
 | `--relax <n>` | 1 | tangential relaxation rounds on the final mesh (more = more even quads, less adaptive sizing) |
 | `--no-pole-cleanup` | off | skip the local pole-pair cancellation on the final mesh |
+| `--symmetry <axes>` | – | mirror symmetry across the object-space X / Y / Z planes, e.g. `x` or `xz` |
 | `--no-adaptive` | off | uniform quad size instead of curvature-adaptive |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--no-boundary` | off | do not constrain open borders |
@@ -121,7 +122,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
 - [ ] Vertex-color density painting
-- [ ] Symmetry (X / Y / Z)
+- [x] Symmetry (X / Y / Z) in the CLI (not yet in the Blender panel)
 - [ ] Split by materials / normals
 - [ ] Windows build and prebuilt release binaries
 

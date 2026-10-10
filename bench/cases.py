@@ -55,5 +55,5 @@ def to_cli_args(params: dict, target: int) -> tuple[list[str], list[str]]:
     if not params.get("AutoDetectHardEdges", 1):
         args.append("--no-hard-edges")
     if "SymAxis" in params:
-        unsupported.append(f"SymAxis={params['SymAxis']}")
+        args += ["--symmetry", params["SymAxis"].lower()]
     return args, unsupported

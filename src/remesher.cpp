@@ -5,6 +5,7 @@
 #include "mesh_cleanup.h"
 #include "quality.h"
 #include "resample.h"
+#include "symmetry.h"
 
 #include <algorithm>
 #include <chrono>
@@ -343,6 +344,34 @@ std::vector<SolveOutcome> solveMany(const TriangleInput& input, const std::vecto
 Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const LogFn& log) {
     if (settings.targetQuadCount <= 0) throw std::runtime_error("targetQuadCount must be positive");
     const auto start = Clock::now();
+    if (settings.symmetryAxes) {
+        TriangleMesh half = cleanupForRemeshing(input, 1e-6);
+        int axes = 0;
+        for (int a = 0; a < 3; ++a)
+            if (settings.symmetryAxes & (1 << a)) half = clipToHalfSpace(half, a), ++axes;
+        if (half.triangles.empty()) throw std::runtime_error("no geometry on the positive side of the symmetry plane");
+        Mesh halfMesh;
+        halfMesh.vertices = half.vertices;
+        for (const auto& t : half.triangles) halfMesh.faces.push_back({t[0], t[1], t[2]});
+        Settings sub = settings;
+        sub.symmetryAxes = 0;
+        sub.preserveBoundary = true;  // the cut must stay a clean border to weld the halves
+        sub.targetQuadCount = std::max(1, settings.targetQuadCount >> axes);
+        Mesh result = remesh(halfMesh, sub, report, log);
+        double edge = 0;
+        size_t edges = 0;
+        for (const auto& f : result.faces)
+            for (size_t i = 0; i < f.size(); ++i, ++edges) {
+                const auto &p = result.vertices[f[i]], &q = result.vertices[f[(i + 1) % f.size()]];
+                edge += std::sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]));
+            }
+        const double seamTolerance = edges ? 0.3 * edge / edges : 0.0;
+        for (int a = 2; a >= 0; --a)
+            if (settings.symmetryAxes & (1 << a)) result = mirrorAcross(result, a, seamTolerance);
+        repairPolygonMesh(result);
+        if (report) report->seconds = std::chrono::duration<double>(Clock::now() - start).count();
+        return result;
+    }
     CleanupStats cleanup;
     const TriangleMesh clean = cleanupForRemeshing(input, 1e-6, &cleanup);
     TriangleMesh solverMesh = clean;

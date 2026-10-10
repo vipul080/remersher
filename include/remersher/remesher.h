@@ -14,6 +14,9 @@ enum class Resample {
 };
 
 struct Settings {
+    // Mirror symmetry: bit 0 = X, bit 1 = Y, bit 2 = Z (object-space planes through the origin).
+    // The positive half is remeshed and mirrored, so the result is exactly symmetric.
+    int symmetryAxes = 0;
     // Desired number of quads in the output.
     int targetQuadCount = 5000;
     // Number of extra solves used to steer the result towards targetQuadCount (0 = single solve).
