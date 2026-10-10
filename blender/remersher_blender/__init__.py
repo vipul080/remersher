@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 import bpy
 import numpy as np
@@ -19,6 +20,7 @@ import numpy as np
 from . import core
 
 ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
+MAX_SECONDS = 600  # hard limit for one remesh, whatever the platform
 
 
 class RemersherPreferences(bpy.types.AddonPreferences):
@@ -207,7 +209,15 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         self._proc = subprocess.Popen(core.build_command(binary, in_path, self._out_path, settings),
                                       stdout=subprocess.DEVNULL, stderr=self._log)
         self._source_name = obj.name
+        self._started = time.monotonic()
         return None
+
+    def _abort(self, context, message):
+        self._proc.kill()
+        self._proc.wait()
+        self._finish(context)
+        self.report({"ERROR"}, message)
+        return {"CANCELLED"}
 
     def _complete(self, context):
         """Reads the CLI's result once the process has exited and builds the new object."""
@@ -237,7 +247,10 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         if error:
             self.report({"ERROR"}, error)
             return {"CANCELLED"}
-        self._proc.wait()
+        try:
+            self._proc.wait(timeout=MAX_SECONDS)
+        except subprocess.TimeoutExpired:
+            return self._abort(context, "Remesh took longer than %d s and was stopped" % MAX_SECONDS)
         return self._complete(context)
 
     def invoke(self, context, event):
@@ -257,6 +270,9 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
             self._finish(context)
             self.report({"WARNING"}, "Remesh cancelled")
             return {"CANCELLED"}
+        if event.type == "TIMER" and self._proc.poll() is None and time.monotonic() - self._started > MAX_SECONDS:
+            # The CLI isolates hangs itself on macOS/Linux; on Windows this is the safety net.
+            return self._abort(context, "Remesh took longer than %d s and was stopped" % MAX_SECONDS)
         if event.type != "TIMER" or self._proc.poll() is None:
             return {"PASS_THROUGH"}
         return self._complete(context)

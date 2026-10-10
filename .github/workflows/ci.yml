@@ -111,6 +111,13 @@ jobs:
       - name: Package Blender add-on
         run: python scripts/package_addon.py build/Release/remersher.exe
 
+      - name: Add-on smoke test in Blender
+        shell: bash
+        run: |
+          curl -sSL -o blender.zip https://download.blender.org/release/Blender4.2/blender-4.2.3-windows-x64.zip
+          unzip -q blender.zip
+          ./blender-4.2.3-windows-x64/blender.exe -b --factory-startup --python tests/blender_smoke.py -- dist/remersher_blender-windows-x86_64.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: remersher-blender-windows
