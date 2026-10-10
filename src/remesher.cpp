@@ -402,6 +402,30 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     if (log && forcedPtr) log("feature lines: " + std::to_string(forced.segments().size()) + " edges");
 
     if (settings.symmetryAxes) {
+        // A mesh that does not cross a symmetry plane through the origin (e.g. modelled away from
+        // its origin) is mirrored about its bounding-box centre instead; mirroring about the
+        // origin would add a detached copy.
+        std::array<double, 3> shift{0, 0, 0};
+        bool shifted = false;
+        for (int a = 0; a < 3; ++a) {
+            if (!(settings.symmetryAxes & (1 << a)) || input.vertices.empty()) continue;
+            double lo = INFINITY, hi = -INFINITY;
+            for (const auto& v : input.vertices) lo = std::min(lo, v[a]), hi = std::max(hi, v[a]);
+            const double extent = hi - lo;
+            if (lo < -0.05 * extent && hi > 0.05 * extent) continue;
+            shift[a] = 0.5 * (lo + hi);
+            shifted = true;
+        }
+        if (shifted) {
+            if (log) log("symmetry: mesh does not cross the origin plane; mirroring about its centre");
+            Mesh moved = input;
+            for (auto& v : moved.vertices)
+                for (int a = 0; a < 3; ++a) v[a] -= shift[a];
+            Mesh result = remesh(moved, settings, report, log);
+            for (auto& v : result.vertices)
+                for (int a = 0; a < 3; ++a) v[a] += shift[a];
+            return result;
+        }
         TriangleMesh half = cleanupForRemeshing(input, 1e-6);
         int axes = 0;
         for (int a = 0; a < 3; ++a)
