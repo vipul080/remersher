@@ -269,10 +269,10 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
         std::vector<Vec3> target(nv);
         for (const auto& c : corners) {
             Vec3 q;
-            int v = outGrid.nearest(c, 0.8 * meanEdge, q);
+            int v = outGrid.nearest(c, 1.6 * meanEdge, q);
             if (v < 0 || nbrs[v].empty()) continue;
             double d = norm(sub(original[v], c));
-            if (d > 0.75 * h[v] || d >= claim[v]) continue;
+            if (d > 1.5 * h[v] || d >= claim[v]) continue;
             claim[v] = d;
             target[v] = c;
         }
