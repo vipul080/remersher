@@ -13,4 +13,6 @@ QuadriFlow is vendored (see UPSTREAM.txt) because remersher modifies the solver.
   coarser levels instead of being forced to 1; hard weights (borders) behave as before.
 - `src/parametrizer.hpp`, `src/parametrizer-mesh.cpp`: the hard-edge angle (was fixed at 60 degrees)
   is a member, `sharp_angle_degrees`.
+- `src/parametrizer-flip.cpp` (`FixHoles`): boundary loops lying on a border of the input are not
+  filled; upstream filled every loop under 25 vertices, closing real holes at low quad counts.
 - `3rd/MapleCOMSPS_LRB`: not vendored (only used by an optional SAT path that is not built).

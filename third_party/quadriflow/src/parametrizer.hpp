@@ -64,6 +64,11 @@ class Parametrizer {
     void FixFlipHierarchy();
     void FixFlipSat();
     void FixHoles();
+    // remersher: true if the loop runs along a border of the input (a real hole, not a gap
+    // left by extraction), in which case it must not be filled.
+    bool LoopOnInputBorder(const std::vector<int>& loop_vertices);
+    std::vector<Vector3d> input_border_points;  // lazily built by LoopOnInputBorder
+    bool input_border_ready = false;
     void FixHoles(std::vector<int>& loop_vertices);
     void FixValence();
     double QuadEnergy(std::vector<int>& loop_vertices, std::vector<Vector4i>& res_quads,

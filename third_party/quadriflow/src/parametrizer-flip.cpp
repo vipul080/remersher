@@ -133,6 +133,25 @@ void Parametrizer::FixHoles(std::vector<int>& loop_vertices) {
     }
 }
 
+bool Parametrizer::LoopOnInputBorder(const std::vector<int>& loop_vertices) {
+    if (!input_border_ready) {
+        const auto& F = hierarchy.mF;
+        const auto& V = hierarchy.mV[0];
+        for (int i = 0; i < (int)hierarchy.mE2E.size(); ++i)
+            if (hierarchy.mE2E[i] == -1) input_border_points.push_back(V.col(F(i % 3, i / 3)));
+        input_border_ready = true;
+    }
+    if (input_border_points.empty() || loop_vertices.empty()) return false;
+    const double limit2 = 0.25 * hierarchy.mScale * hierarchy.mScale;  // half a quad
+    int near = 0;
+    for (int v : loop_vertices) {
+        const Vector3d& p = O_compact[v];
+        for (const auto& b : input_border_points)
+            if ((p - b).squaredNorm() <= limit2) { ++near; break; }
+    }
+    return near >= 0.6 * loop_vertices.size();
+}
+
 void Parametrizer::FixHoles() {
     for (int i = 0; i < F_compact.size(); ++i) {
         for (int j = 0; j < 4; ++j) {
@@ -168,7 +187,7 @@ void Parametrizer::FixHoles() {
         for (int j = 0; j < loop_edges.size(); ++j) {
             loop_vertices[j] = F_compact[loop_edges[j] / 4][loop_edges[j] % 4];
         }
-        if (loop_vertices.size() < 25) FixHoles(loop_vertices);
+        if (loop_vertices.size() < 25 && !LoopOnInputBorder(loop_vertices)) FixHoles(loop_vertices);
     }
 }
 

@@ -571,8 +571,11 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         o.ok = false;
         return false;
     };
+    // Every accepted (budget, face count) pair, for bracketing the target during calibration.
+    std::vector<std::pair<int, size_t>> tried;
     auto consider = [&](Mesh& m, int budgetUsed) {
         ++solves;
+        tried.push_back({budgetUsed, m.faces.size()});
         const double error = std::abs((double)m.faces.size() - target) / target;
         if (log)
             log("solve " + std::to_string(solves) + ": budget " + std::to_string(budgetUsed) + " -> " +
@@ -619,13 +622,24 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     //    and keep the closest.
     int passesLeft = std::max(0, settings.countCalibrationPasses);
     while (!best.faces.empty() && bestError > settings.countTolerance && passesLeft > 0) {
-        const double ratio = std::clamp(target / (double)best.faces.size(), 0.25, 4.0);
-        const double estimate = bestBudget * ratio;
         const int n = std::min(passesLeft, std::max(1, settings.maxParallelSolves));
         std::vector<SolveJob> jobs;
-        for (int i = 0; i < n; ++i) {
-            const double spread = n == 1 ? 1.0 : 1.0 + 0.08 * (i - (n - 1) / 2.0);
-            jobs.push_back({attempt, std::max(1, (int)std::lround(estimate * spread))});
+        // If earlier solves landed on both sides of the target, search between the closest budgets
+        // below and above it: the count can jump with the budget, and a ratio step overshoots.
+        int below = -1, above = -1;
+        for (const auto& [b, count] : tried) {
+            if ((double)count < target && b > below) below = b;
+            if ((double)count > target && (above < 0 || b < above)) above = b;
+        }
+        if (below > 0 && above > below + n) {
+            for (int i = 1; i <= n; ++i) jobs.push_back({attempt, below + (above - below) * i / (n + 1)});
+        } else {
+            const double ratio = std::clamp(target / (double)best.faces.size(), 0.25, 4.0);
+            const double estimate = bestBudget * ratio;
+            for (int i = 0; i < n; ++i) {
+                const double spread = n == 1 ? 1.0 : 1.0 + 0.08 * (i - (n - 1) / 2.0);
+                jobs.push_back({attempt, std::max(1, (int)std::lround(estimate * spread))});
+            }
         }
         passesLeft -= n;
         std::vector<SolveOutcome> res = solveMany(tris, jobs);
