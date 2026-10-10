@@ -1,5 +1,6 @@
 #include "features.h"
 
+#include "quad_cleanup.h"
 #include "surface_projector.h"
 
 #include <algorithm>
@@ -109,7 +110,8 @@ Vec3 newellNormal(const Mesh& m, const std::vector<int>& f) {
 void relax(Mesh& output, const TriangleMesh& input, const std::vector<std::vector<int>>& vfaces,
            const std::vector<std::vector<int>>& nbrs, const std::vector<char>& onBorder,
            const std::vector<char>& kind, const SegmentGrid& creaseGrid, const SegmentGrid& borderGrid,
-           const std::vector<double>& h, double meanEdge, int iterations) {
+           const std::vector<double>& h, double meanEdge, int iterations,
+           const std::vector<char>* mask = nullptr) {
     if (iterations <= 0) return;
     const size_t nv = output.vertices.size();
     const geom::SurfaceProjector surface(input.vertices, input.triangles, 2 * meanEdge);
@@ -122,7 +124,7 @@ void relax(Mesh& output, const TriangleMesh& input, const std::vector<std::vecto
         const std::vector<Vec3> P = output.vertices;
         std::vector<Vec3> next = P;
         for (size_t v = 0; v < nv; ++v) {
-            if (vfaces[v].empty() || kind[v] == 3) continue;
+            if (vfaces[v].empty() || kind[v] == 3 || (mask && !(*mask)[v])) continue;
             const bool onLine = kind[v] == 1 || kind[v] == 2 || onBorder[v];
             Vec3 target{0, 0, 0};
             int count = 0;
@@ -181,7 +183,7 @@ void relax(Mesh& output, const TriangleMesh& input, const std::vector<std::vecto
 }  // namespace
 
 SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle,
-                         int relaxIterations) {
+                         int relaxIterations, bool cleanupPoles) {
     SnapStats st;
     if (output.faces.empty() || input.triangles.empty()) return st;
 
@@ -346,6 +348,46 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
             moved[v] = kFree;
             ++st.reverted;
         }
+    }
+    if (cleanupPoles) {
+        // Cancel pole pairs with local quad operations, never touching feature or border vertices.
+        std::vector<char> lockedV(nv, 0);
+        for (size_t v = 0; v < nv; ++v) lockedV[v] = moved[v] != kFree || onBorder[v];
+        std::vector<char> changed;
+        const PoleCleanupStats ps = cancelPoles(output, lockedV, 10, &changed);
+        st.diagonalCollapses = ps.diagonalCollapses;
+        st.edgeRotations = ps.edgeRotations;
+        // Topology changed: rebuild the adjacency the relaxation uses.
+        for (auto& x : nbrs) x.clear();
+        for (auto& x : vfaces) x.clear();
+        std::fill(onBorder.begin(), onBorder.end(), 0);
+        edgeCount.clear();
+        for (int fi = 0; fi < (int)output.faces.size(); ++fi) {
+            const auto& f = output.faces[fi];
+            for (size_t i = 0; i < f.size(); ++i) {
+                int a = f[i], b = f[(i + 1) % f.size()];
+                nbrs[a].push_back(b), nbrs[b].push_back(a);
+                vfaces[a].push_back(fi);
+                ++edgeCount[edgeKey(a, b)];
+            }
+        }
+        for (const auto& [k, c] : edgeCount)
+            if (c == 1) onBorder[k >> 32] = onBorder[k & 0xffffffff] = 1;
+        for (auto& n : nbrs) {
+            std::sort(n.begin(), n.end());
+            n.erase(std::unique(n.begin(), n.end()), n.end());
+        }
+        // Quads around the operations are distorted; smooth that neighbourhood (two rings) a few
+        // extra rounds without flattening the adaptive sizing elsewhere.
+        std::vector<char> mask = changed;
+        for (int ring = 0; ring < 2; ++ring) {
+            std::vector<char> grown = mask;
+            for (size_t v = 0; v < nv; ++v)
+                if (mask[v])
+                    for (int u : nbrs[v]) grown[u] = 1;
+            mask.swap(grown);
+        }
+        relax(output, input, vfaces, nbrs, onBorder, moved, creaseGrid, borderGrid, h, meanEdge, 4, &mask);
     }
     relax(output, input, vfaces, nbrs, onBorder, moved, creaseGrid, borderGrid, h, meanEdge,
           relaxIterations);

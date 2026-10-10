@@ -395,7 +395,8 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     auto finish = [&](SolveOutcome& o, int budgetUsed) {
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
-        snapToFeatures(o.mesh, clean, settings.detectHardEdges ? 60.0 : 0.0, settings.relaxIterations);
+        snapToFeatures(o.mesh, clean, settings.detectHardEdges ? 60.0 : 0.0, settings.relaxIterations,
+                       settings.cleanupPoles);
         repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
         // The solver occasionally collapses or folds whole regions without reporting an error;
         // reject those results like a crash.
