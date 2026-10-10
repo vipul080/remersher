@@ -60,9 +60,32 @@ class RemersherSettings(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(
         name="Seed", default=0, min=0,
         description="Try another seed for a different layout")
+    use_vertex_color: bpy.props.BoolProperty(
+        name="Use Vertex Color", default=False,
+        description="Paint density with the active color attribute: white = denser, black = sparser, "
+                    "mid-grey = unchanged")
     hide_original: bpy.props.BoolProperty(
         name="Hide Original", default=True,
         description="Hide the source object after remeshing")
+
+
+def _vertex_colors(mesh, loops):
+    """Per-vertex sRGB colors of the active color attribute (corner colors are averaged), or None."""
+    attr = getattr(mesh.color_attributes, "active_color", None) if hasattr(mesh, "color_attributes") else None
+    if attr is None or len(attr.data) == 0:
+        return None
+    rgba = np.empty(len(attr.data) * 4, dtype=np.float64)
+    prop = "color_srgb" if hasattr(attr.data[0], "color_srgb") else "color"
+    attr.data.foreach_get(prop, rgba)
+    rgba = rgba.reshape(-1, 4)[:, :3]
+    if attr.domain == "POINT":
+        return rgba
+    # CORNER domain: average the corners of each vertex.
+    sums = np.zeros((len(mesh.vertices), 3))
+    counts = np.zeros(len(mesh.vertices))
+    np.add.at(sums, loops, rgba)
+    np.add.at(counts, loops, 1)
+    return sums / np.maximum(counts, 1)[:, None]
 
 
 def _mesh_arrays(obj, depsgraph):
@@ -79,7 +102,7 @@ def _mesh_arrays(obj, depsgraph):
         mesh.polygons.foreach_get("loop_start", starts)
         mesh.polygons.foreach_get("loop_total", totals)
         faces = [loops[s:s + t].tolist() for s, t in zip(starts, totals)]
-        return verts.reshape(-1, 3), faces
+        return verts.reshape(-1, 3), faces, _vertex_colors(mesh, loops)
     finally:
         evaluated.to_mesh_clear()
 
@@ -108,7 +131,7 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         if not binary:
             return "remersher executable not found; set it in the add-on preferences"
         obj = context.active_object
-        verts, faces = _mesh_arrays(obj, context.evaluated_depsgraph_get())
+        verts, faces, colors = _mesh_arrays(obj, context.evaluated_depsgraph_get())
         if not faces:
             return "Mesh has no faces"
 
@@ -117,14 +140,15 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
             target_quad_count=s.target_quad_count, adaptivity=s.adaptivity,
             detect_hard_edges=s.detect_hard_edges, hard_edge_angle=s.hard_edge_angle,
             preserve_boundary=s.preserve_boundary,
-            seed=s.seed,
+            seed=s.seed, use_vertex_color=s.use_vertex_color,
             symmetry=("x" if s.symmetry_x else "") + ("y" if s.symmetry_y else "") + ("z" if s.symmetry_z else ""))
 
         self._workdir = tempfile.mkdtemp(prefix="remersher_")
         in_path = os.path.join(self._workdir, "in.obj")
         self._out_path = os.path.join(self._workdir, "out.obj")
         self._log_path = os.path.join(self._workdir, "log.txt")
-        core.write_obj(in_path, verts, faces)
+        s_use_colors = context.scene.remersher.use_vertex_color and colors is not None
+        core.write_obj(in_path, verts, faces, colors if s_use_colors else None)
 
         self._log = open(self._log_path, "w")
         self._proc = subprocess.Popen(core.build_command(binary, in_path, self._out_path, settings),
@@ -244,6 +268,7 @@ class REMERSHER_PT_panel(bpy.types.Panel):
         sub.enabled = s.detect_hard_edges
         sub.prop(s, "hard_edge_angle", text="")
         box.prop(s, "preserve_boundary")
+        layout.prop(s, "use_vertex_color")
 
         row = layout.row(align=True)
         row.label(text="Symmetry")

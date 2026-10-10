@@ -20,4 +20,7 @@ int addCurvatureConstraints(qflow::Hierarchy& h, double strength);
 // left untouched, above 50 curvature sizing is blended in. The field keeps a mean of 1, so the face budget still sets the overall density.
 void applyCurvatureSizing(qflow::Hierarchy& h, double adaptivity);
 
+// Copies the finest level's sizing field (mS[0]) down the hierarchy to the coarser levels.
+void propagateSizing(qflow::Hierarchy& h);
+
 }  // namespace remersher

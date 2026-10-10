@@ -20,6 +20,7 @@ class RemeshSettings:
     preserve_boundary: bool = True
     seed: int = 0
     symmetry: str = ""  # any of "x", "y", "z"
+    use_vertex_color: bool = False  # vertex colors as density paint
     timeout: float = 120.0
 
 
@@ -57,14 +58,21 @@ def build_command(binary: str, in_path: str, out_path: str, s: RemeshSettings) -
         cmd += ["--hard-angle", "%g" % s.hard_edge_angle]
     if not s.preserve_boundary:
         cmd.append("--no-boundary")
+    if s.use_vertex_color:
+        cmd.append("--vertex-color")
     return cmd
 
 
-def write_obj(path: str, vertices, faces) -> None:
-    """vertices: iterable of (x, y, z); faces: iterable of vertex-index sequences (0-based)."""
+def write_obj(path: str, vertices, faces, colors=None) -> None:
+    """vertices: iterable of (x, y, z); faces: iterable of vertex-index sequences (0-based);
+    colors: optional per-vertex (r, g, b) in 0..1, written as `v x y z r g b`."""
     with open(path, "w") as fh:
         fh.write("# remersher blender export\n")
-        fh.writelines("v %.9g %.9g %.9g\n" % (v[0], v[1], v[2]) for v in vertices)
+        if colors is None:
+            fh.writelines("v %.9g %.9g %.9g\n" % (v[0], v[1], v[2]) for v in vertices)
+        else:
+            fh.writelines("v %.9g %.9g %.9g %.4f %.4f %.4f\n" % (v[0], v[1], v[2], c[0], c[1], c[2])
+                          for v, c in zip(vertices, colors))
         fh.writelines("f " + " ".join(str(i + 1) for i in f) + "\n" for f in faces)
 
 

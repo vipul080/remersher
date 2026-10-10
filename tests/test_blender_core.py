@@ -27,6 +27,15 @@ def test_obj_round_trip(tmp):
     assert f == faces, f
 
 
+def test_obj_colors(tmp):
+    path = os.path.join(tmp, "c.obj")
+    core.write_obj(path, [(0, 0, 0), (1, 0, 0), (0, 1, 0)], [[0, 1, 2]], colors=[(1, 1, 1), (0, 0, 0), (0.5, 0.5, 0.5)])
+    lines = [l for l in open(path) if l.startswith("v ")]
+    assert lines[0].split()[4:] == ["1.0000", "1.0000", "1.0000"], lines[0]
+    v, f = core.read_obj(path)
+    assert len(v) == 3 and f == [[0, 1, 2]]
+
+
 def test_build_command():
     s = core.RemeshSettings(target_quad_count=1234, adaptivity=0, detect_hard_edges=True,
                             preserve_boundary=False, seed=7, timeout=30)
@@ -37,7 +46,8 @@ def test_build_command():
     assert cmd[cmd.index("--adaptivity") + 1] == "0"
     assert "--no-boundary" in cmd
     assert cmd[cmd.index("--hard-angle") + 1] == "45" and "--no-hard-edges" not in cmd
-    assert "--symmetry" not in cmd
+    assert "--symmetry" not in cmd and "--vertex-color" not in cmd
+    assert "--vertex-color" in core.build_command("r", "a", "b", core.RemeshSettings(use_vertex_color=True))
     cmd = core.build_command("/bin/remersher", "a.obj", "b.obj", core.RemeshSettings(symmetry="Xz"))
     assert cmd[cmd.index("--symmetry") + 1] == "xz"
 
@@ -74,6 +84,7 @@ def main():
         sys.exit(f"remersher binary not found at {binary}; build it first")
     with tempfile.TemporaryDirectory() as tmp:
         test_obj_round_trip(tmp)
+        test_obj_colors(tmp)
         test_build_command()
         test_find_binary(tmp, binary)
         test_cli_round_trip(tmp, binary)

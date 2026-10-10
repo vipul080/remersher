@@ -1,6 +1,7 @@
 #include "remersher/remesher.h"
 
 #include "curvature.h"
+#include "density.h"
 #include "features.h"
 #include "mesh_cleanup.h"
 #include "quality.h"
@@ -41,6 +42,7 @@ using Clock = std::chrono::steady_clock;
 struct TriangleInput {
     qflow::MatrixXd V;
     qflow::MatrixXi F;
+    const DensitySource* density = nullptr;  // optional density paint
 };
 
 TriangleInput toSolverInput(const TriangleMesh& mesh) {
@@ -164,11 +166,13 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
     // QuadriFlow's own "adaptive" field only varies by about +-25% (it mostly follows the field's
     // slope); add a curvature-driven size on top so the slider behaves like users expect.
     applyCurvatureSizing(field->hierarchy, s.adaptivity);
+    if (input.density)
+        applyDensityPaint(field->hierarchy, *input.density, field->normalize_scale, field->normalize_offset);
     field->flag_adaptive_scale = 1;  // the position solve always uses the scale field
     qflow::Optimizer::optimize_positions(field->hierarchy, field->flag_adaptive_scale);
     field->ComputePositionSingularities();
     // Upstream calls this without the sizing field, which made "adaptive" output uniform.
-    field->ComputeIndexMap(s.adaptivity > 50 ? 1 : 0);
+    field->ComputeIndexMap(s.adaptivity > 50 || input.density ? 1 : 0);
 
     return fromParametrizer(*field);
 }
@@ -357,6 +361,10 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         if (half.triangles.empty()) throw std::runtime_error("no geometry on the positive side of the symmetry plane");
         Mesh halfMesh;
         halfMesh.vertices = half.vertices;
+        if (settings.useVertexColor && input.density.size() == input.vertices.size()) {
+            const DensitySource paint(input.vertices, input.density);
+            for (const auto& p : halfMesh.vertices) halfMesh.density.push_back(paint.sample(p));
+        }
         for (const auto& t : half.triangles) halfMesh.faces.push_back({t[0], t[1], t[2]});
         Settings sub = settings;
         sub.symmetryAxes = 0;
@@ -405,6 +413,12 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         }
     }
     TriangleInput tris = toSolverInput(solverMesh);
+    std::unique_ptr<DensitySource> paint;
+    if (settings.useVertexColor && input.density.size() == input.vertices.size() && !input.vertices.empty()) {
+        paint = std::make_unique<DensitySource>(input.vertices, input.density);
+        tris.density = paint.get();
+        if (log) log("using vertex-color density");
+    }
     bool usingResampled = solverMesh.triangles != clean.triangles;
     int consecutiveFailures = 0;
     if (log && (cleanup.weldedVertices || cleanup.droppedTriangles || cleanup.flippedTriangles))
@@ -479,6 +493,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             // cleaned original rather than burning the remaining attempts.
             if (log) log("falling back to the original triangulation");
             tris = toSolverInput(clean);
+            tris.density = paint.get();
             usingResampled = false;
             consecutiveFailures = 0;
             budget = settings.targetQuadCount;

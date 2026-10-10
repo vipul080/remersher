@@ -1,5 +1,6 @@
 #include "remersher/mesh.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -32,6 +33,14 @@ Mesh readObj(const std::string& path) {
             std::array<double, 3> p{};
             if (!(ss >> p[0] >> p[1] >> p[2]))
                 throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": bad vertex");
+            double r, g, b;
+            if (ss >> r >> g >> b) {
+                // First colored vertex: earlier ones count as neutral.
+                if (mesh.density.empty()) mesh.density.assign(mesh.vertices.size(), 0.5f);
+                mesh.density.push_back((float)std::clamp(0.2126 * r + 0.7152 * g + 0.0722 * b, 0.0, 1.0));
+            } else if (!mesh.density.empty()) {
+                mesh.density.push_back(0.5f);
+            }
             mesh.vertices.push_back(p);
         } else if (tag == "f") {
             std::vector<int> face;

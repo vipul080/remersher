@@ -42,6 +42,7 @@ cmake --build build -j
 | `--adaptivity <0-100>` | 50 | quad size variation with curvature: 0 = uniform, 50 = mild default, 51–100 = increasingly denser in curved areas |
 | `--hard-angle <deg>` | 50 | dihedral angle above which an edge counts as hard |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
+| `--vertex-color` | off | use vertex colors as density paint: white = 4× denser, black = 4× sparser, mid-grey unchanged (OBJ `v x y z r g b`) |
 | `--no-boundary` | off | do not constrain open borders |
 | `--resample <mode>` | auto | `auto`, `always` or `never`: isotropic resampling of the input before solving; `auto` only resamples sliver-heavy input |
 | `--seed <n>` | 0 | solver seed; results are deterministic per seed |
@@ -59,7 +60,8 @@ Blender) never freezes.
 
 In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick the zip (Blender 3.6+).
 The **Remersher** tab in the 3D view sidebar mirrors the familiar retopology workflow: Quad Count,
-Adaptive Size, Detect Hard Edges by angle, Preserve Borders, Symmetry X/Y/Z and Seed, with a
+Adaptive Size, Detect Hard Edges by angle, Preserve Borders, Use Vertex Color (density paint with
+the active color attribute), Symmetry X/Y/Z and Seed, with a
 **Remesh It** button; the result is added as `Retopo_<name>`. It runs in the background (Esc cancels), remeshes the
 active object with its modifiers applied, and adds the result as a new object with the same
 transform and materials. CI builds the zip for Linux and macOS on every push and runs it inside Blender
@@ -124,7 +126,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Speed: CG sizing solve, faster resampling, parallel calibration (median case 3 s)
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [x] Continuous adaptivity (0–100)
-- [ ] Vertex-color density painting
+- [x] Vertex-color density painting
 - [x] Symmetry (X / Y / Z)
 - [ ] Split by materials / normals
 - [ ] Windows build and prebuilt release binaries

@@ -36,7 +36,23 @@ def main():
     assert src.hide_get(), "source should be hidden"
     xs = [v.co.x for v in out.data.vertices]
     assert abs(max(xs) + min(xs)) < 1e-3, "symmetric result expected"
-    print(f"BLENDER SMOKE OK: {len(faces)} faces, {quads} quads")
+    # Density paint: a sphere painted white on top and black below gets more quads on top.
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, location=(5, 0, 0))
+    ball = bpy.context.active_object
+    col = ball.data.color_attributes.new("paint", "FLOAT_COLOR", "POINT")
+    for i, v in enumerate(ball.data.vertices):
+        c = 1.0 if v.co.z > 0 else 0.0
+        col.data[i].color_srgb = (c, c, c, 1.0)
+    ball.data.color_attributes.active_color = col
+    s.symmetry_x = False
+    s.use_vertex_color = True
+    s.target_quad_count = 1200
+    assert bpy.ops.remersher.remesh() == {"FINISHED"}
+    painted = bpy.context.active_object
+    top = sum(1 for p in painted.data.polygons if p.center.z > 0)
+    bottom = len(painted.data.polygons) - top
+    assert top > 2 * bottom, (top, bottom)
+    print(f"BLENDER SMOKE OK: {len(faces)} faces, {quads} quads; density paint {top} top / {bottom} bottom")
 
 
 try:

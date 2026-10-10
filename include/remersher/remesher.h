@@ -39,6 +39,8 @@ struct Settings {
     bool cleanupPoles = true;
     // Rounds of tangential relaxation of the final quad mesh (0 = off).
     int relaxIterations = 1;
+    // Use the input's vertex colors (Mesh::density) as density paint: brighter = smaller quads.
+    bool useVertexColor = false;
     // Keep open borders of the input as borders of the output.
     bool preserveBoundary = true;
     // Isotropic resampling of the input before solving. The field solver is unstable on inputs

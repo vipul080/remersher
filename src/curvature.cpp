@@ -219,6 +219,10 @@ void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
         S(0, v) *= size[v] / mean;
         S(1, v) *= size[v] / mean;
     }
+    propagateSizing(h);
+}
+
+void propagateSizing(Hierarchy& h) {
     for (size_t l = 0; l + 1 < h.mS.size(); ++l) {
         const auto& toUpper = h.mToUpper[l];
         for (int i = 0; i < toUpper.cols(); ++i) {

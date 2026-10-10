@@ -26,6 +26,8 @@ const char* kUsage =
     "      --relax <n>          relaxation rounds on the final mesh (default 1)\n"
     "      --no-pole-cleanup    keep the solver's singularities as they are\n"
     "      --symmetry <axes>    mirror symmetry, any of x, y, z (e.g. x or xz)\n"
+    "      --vertex-color       vertex colors as density paint: white = 4x denser, black = 4x\n"
+    "                           sparser, mid-grey neutral (OBJ `v x y z r g b`)\n"
     "      --no-boundary        do not constrain open borders\n"
     "      --resample <mode>    auto | always | never: isotropic resampling of the input\n"
     "                           before solving (default auto: only for sliver-heavy input)\n"
@@ -73,6 +75,7 @@ int main(int argc, char** argv) {
                 else usageError("--symmetry takes a combination of x, y and z");
             }
         }
+        else if (arg == "--vertex-color") settings.useVertexColor = true;
         else if (arg == "--no-boundary") settings.preserveBoundary = false;
         else if (arg == "--resample") {
             std::string mode = value();
