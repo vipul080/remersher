@@ -1,6 +1,7 @@
 #include "remersher/remesher.h"
 
 #include "curvature.h"
+#include "crease.h"
 #include "density.h"
 #include "feature_lines.h"
 #include "features.h"
@@ -482,6 +483,17 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     }
     CleanupStats cleanup;
     const TriangleMesh clean = cleanupForRemeshing(input, 1e-6, &cleanup);
+    // Hard edges are found once, on the cleaned input, and from here on travel as feature lines
+    // together with the user's (materials, sharp edges): resampling and the solver's subdivision
+    // add flat edges that would make the relative crease test meaningless there.
+    std::vector<std::array<FeatureLines::Vec3, 2>> allSegments = featureSegments;
+    if (settings.detectHardEdges) {
+        auto creases = detectCreases(clean, settings.hardEdgeAngle);
+        if (log && !creases.empty()) log("hard edges: " + std::to_string(creases.size()));
+        allSegments.insert(allSegments.end(), creases.begin(), creases.end());
+    }
+    const FeatureLines features(allSegments, 1e-5 * diag);
+    const FeatureLines* featuresPtr = features.empty() ? nullptr : &features;
     TriangleMesh solverMesh = clean;
     const double slivers = sliverFraction(clean);
     if (settings.resample == Resample::Always ||
@@ -498,8 +510,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         // adaptive sizing still has room to shrink quads in curved regions.
         const double edge = 0.4 * std::sqrt(area / settings.targetQuadCount);
         ResampleStats rs;
-        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, 5, &rs,
-                                        forcedPtr);
+        solverMesh = resampleIsotropic(clean, edge, 0.0, 5, &rs, featuresPtr);
         if (log) {
             char line[200];
             std::snprintf(line, sizeof line,
@@ -509,7 +520,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         }
     }
     TriangleInput tris = toSolverInput(solverMesh);
-    tris.features = forcedPtr;
+    tris.features = featuresPtr;
     std::unique_ptr<DensitySource> paint;
     if (settings.useVertexColor && input.density.size() == input.vertices.size() && !input.vertices.empty()) {
         paint = std::make_unique<DensitySource>(input.vertices, input.density);
@@ -530,6 +541,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     int budget = settings.targetQuadCount;
     int solves = 0, failed = 0;
     Settings attempt = settings;
+    attempt.hardEdgeAngle = 180;  // creases come in as feature lines; no angle test in the solver
     // Least-bad result among those rejected by the quality check, returned (with a warning) only
     // if no solve passes: a flawed mesh is more useful to the user than an error.
     Mesh fallback;
@@ -540,8 +552,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     auto finish = [&](SolveOutcome& o, int budgetUsed) {
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
-        snapToFeatures(o.mesh, clean, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, settings.relaxIterations,
-                       settings.cleanupPoles, forcedPtr);
+        snapToFeatures(o.mesh, clean, 0.0, settings.relaxIterations, settings.cleanupPoles, featuresPtr);
         repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
         // The solver occasionally collapses or folds whole regions without reporting an error;
         // reject those results like a crash.
@@ -591,7 +602,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             if (log) log("falling back to the original triangulation");
             tris = toSolverInput(clean);
             tris.density = paint.get();
-            tris.features = forcedPtr;
+            tris.features = featuresPtr;
             usingResampled = false;
             consecutiveFailures = 0;
             budget = settings.targetQuadCount;

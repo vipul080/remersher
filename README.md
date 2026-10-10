@@ -40,7 +40,7 @@ cmake --build build -j
 | `--no-pole-cleanup` | off | skip the local pole-pair cancellation on the final mesh |
 | `--symmetry <axes>` | – | mirror symmetry across the object-space X / Y / Z planes, e.g. `x` or `xz` |
 | `--adaptivity <0-100>` | 50 | quad size variation with curvature: 0 = uniform, 50 = mild default, 51–100 = increasingly denser in curved areas |
-| `--hard-angle <deg>` | 50 | dihedral angle above which an edge counts as hard |
+| `--hard-angle <deg>` | 50 | dihedral angle above which an edge can be hard; edges are kept as hard only where they form crease lines or loops, not where a coarse smooth surface is just faceted |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--vertex-color` | off | use vertex colors as density paint: white = 4× denser, black = 4× sparser, mid-grey unchanged (OBJ `v x y z r g b`) |
 | `--materials` | off | keep borders between OBJ materials (`usemtl`) as edge loops; edges given as OBJ `l` elements are always kept |
@@ -77,6 +77,9 @@ CI builds the add-on for macOS, Linux and Windows on every push and runs it insi
 
 1. **Input clean-up**: concave-safe ngon triangulation (ear clipping), tolerance welding of
    seams, removal of degenerate/duplicate faces, and consistent winding per connected piece.
+   Hard edges are detected here once: edges sharper than `--hard-angle` that form crease lines
+   or loops (scattered facet edges of coarse smooth surfaces are ignored). Together with material
+   borders and user edges they travel as feature lines through every later stage.
 2. **Isotropic resampling** (Botsch & Kobbelt) when the input has many slivers: edge splits,
    collapses, valence flips and smoothing projected onto the input; hard edges and borders are
    kept. This is what makes dense UV-sphere-like inputs stable.

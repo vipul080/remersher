@@ -190,7 +190,7 @@ void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
     // regions finite; sizes are clamped to 1/4..4 of the base size.
     // Up to 50 (the default) the solver's own mild adaptivity is used as is; 50..100 blends in
     // curvature-driven sizing. Applying it at the default distorted quads across the benchmark.
-    const double gamma = std::clamp((adaptivity - 50.0) / 50.0, 0.0, 1.0);
+    const double gamma = 0.4 * std::clamp((adaptivity - 50.0) / 50.0, 0.0, 1.0);
     if (gamma <= 0) return;
     std::vector<double> logSize(n, 0.0);
     for (int v = 0; v < n; ++v) {
