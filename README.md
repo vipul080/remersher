@@ -36,6 +36,7 @@ cmake --build build -j
 | `-j, --jobs <n>` | 3 | calibration solves run in parallel (macOS / Linux) |
 | `--tolerance <f>` | 0.03 | stop calibrating once within this fraction of the target |
 | `--curvature <f>` | 0.5 | how strongly edge loops follow principal curvature (0 = off, 1 = strongest) |
+| `--relax <n>` | 1 | tangential relaxation rounds on the final mesh (more = more even quads, less adaptive sizing) |
 | `--no-adaptive` | off | uniform quad size instead of curvature-adaptive |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--no-boundary` | off | do not constrain open borders |
@@ -71,8 +72,9 @@ transform and materials. CI builds the zip for Linux and macOS on every push.
    quads (tubes, tori, limbs), softly to principal curvature, an optional curvature-adaptive scale field,
    and a position field, solved on a multi-resolution hierarchy.
 4. **Quad extraction** with network-flow based singularity and flip removal.
-5. **Feature snapping**: output vertices near input corners, hard edges and borders are moved
-   exactly onto them, growing chains along creases from the corners.
+5. **Feature snapping and relaxation**: output vertices near input corners, hard edges and
+   borders are moved exactly onto them (growing chains along creases from the corners), then the
+   quads are relaxed tangentially, with vertices kept on the surface and on their features.
 6. **Validation**: every result is checked against the input surface (stray vertices, holes,
    folded faces); bad solves are rejected and retried with another seed; if every attempt fails, the
    original triangulation is tried and finally the least-bad result is returned with a warning.

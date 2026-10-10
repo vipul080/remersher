@@ -29,6 +29,8 @@ struct Settings {
     // How strongly edge loops follow principal curvature directions (0 = only smoothness, as in
     // plain QuadriFlow; 1 = strongest). Matters on tubes, tori and other anisotropic shapes.
     double curvatureAlignment = 0.5;
+    // Rounds of tangential relaxation of the final quad mesh (0 = off).
+    int relaxIterations = 1;
     // Keep open borders of the input as borders of the output.
     bool preserveBoundary = true;
     // Isotropic resampling of the input before solving. The field solver is unstable on inputs

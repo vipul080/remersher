@@ -1,5 +1,7 @@
 #include "features.h"
 
+#include "surface_projector.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -100,9 +102,86 @@ Vec3 newellNormal(const Mesh& m, const std::vector<int>& f) {
     return n;
 }
 
+// Tangential relaxation of the quad mesh: free vertices move towards the centroid of their
+// faces and are projected back onto the input surface; crease and border vertices move between
+// their neighbours on the same feature and are projected back onto it; corners stay put. Moves
+// that would fold an incident face are undone.
+void relax(Mesh& output, const TriangleMesh& input, const std::vector<std::vector<int>>& vfaces,
+           const std::vector<std::vector<int>>& nbrs, const std::vector<char>& onBorder,
+           const std::vector<char>& kind, const SegmentGrid& creaseGrid, const SegmentGrid& borderGrid,
+           const std::vector<double>& h, double meanEdge, int iterations) {
+    if (iterations <= 0) return;
+    const size_t nv = output.vertices.size();
+    const geom::SurfaceProjector surface(input.vertices, input.triangles, 2 * meanEdge);
+    auto faceNormal = [&](const std::vector<int>& f, const std::vector<Vec3>& P) {
+        Vec3 n{0, 0, 0};
+        for (size_t i = 0; i < f.size(); ++i) n = add(n, cross(P[f[i]], P[f[(i + 1) % f.size()]]));
+        return n;
+    };
+    for (int it = 0; it < iterations; ++it) {
+        const std::vector<Vec3> P = output.vertices;
+        std::vector<Vec3> next = P;
+        for (size_t v = 0; v < nv; ++v) {
+            if (vfaces[v].empty() || kind[v] == 3) continue;
+            const bool onLine = kind[v] == 1 || kind[v] == 2 || onBorder[v];
+            Vec3 target{0, 0, 0};
+            int count = 0;
+            if (onLine) {
+                // Neighbours on the same feature line (or output border).
+                for (int u : nbrs[v]) {
+                    const bool same = onBorder[v] ? (bool)onBorder[u] : (kind[u] == 1 || kind[u] == 3);
+                    if (same) target = add(target, P[u]), ++count;
+                }
+                if (count != 2) continue;  // line ends or branches: leave it
+                target = scale(target, 0.5);
+            } else {
+                for (int fi : vfaces[v]) {
+                    const auto& f = output.faces[fi];
+                    Vec3 c{0, 0, 0};
+                    for (int u : f) c = add(c, P[u]);
+                    target = add(target, scale(c, 1.0 / f.size())), ++count;
+                }
+                target = scale(target, 1.0 / count);
+            }
+            Vec3 n{0, 0, 0};
+            for (int fi : vfaces[v]) n = add(n, faceNormal(output.faces[fi], P));
+            const double nl = norm(n);
+            if (nl <= 0) continue;
+            n = scale(n, 1 / nl);
+            Vec3 d = scale(sub(target, P[v]), 0.5);
+            Vec3 p = add(P[v], sub(d, scale(n, dot(n, d))));
+            Vec3 q;
+            if (kind[v] == 1) {
+                if (creaseGrid.nearest(p, h[v], q) >= 0) next[v] = q;
+            } else if (onBorder[v]) {
+                if (!borderGrid.empty() && borderGrid.nearest(p, h[v], q) >= 0) next[v] = q;
+                else next[v] = p;
+            } else {
+                geom::Vec3 g;
+                next[v] = surface.project(p, g) ? Vec3{g[0], g[1], g[2]} : p;
+            }
+        }
+        // Undo moves that fold an incident face (checked against this iteration's start).
+        output.vertices = next;
+        for (size_t v = 0; v < nv; ++v) {
+            if (next[v] == P[v]) continue;
+            for (int fi : vfaces[v]) {
+                const auto& f = output.faces[fi];
+                Vec3 before = faceNormal(f, P), after = faceNormal(f, output.vertices);
+                double lb = norm(before), la = norm(after);
+                if (la < 1e-3 * lb || dot(after, before) <= 0.5 * la * lb) {
+                    output.vertices[v] = P[v];
+                    break;
+                }
+            }
+        }
+    }
+}
+
 }  // namespace
 
-SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle) {
+SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle,
+                         int relaxIterations) {
     SnapStats st;
     if (output.faces.empty() || input.triangles.empty()) return st;
 
@@ -134,7 +213,6 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
         featureDirs[a].push_back(s.dir);
         featureDirs[b].push_back(scale(s.dir, -1));
     }
-    if (creases.empty() && borders.empty()) return st;
 
     // Feature corners: where feature lines meet, end, or turn sharply.
     std::vector<Vec3> corners;
@@ -175,7 +253,8 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
     meanEdge /= edges;
 
     const std::vector<Vec3> original = output.vertices;
-    std::vector<char> moved(nv, 0);
+    enum : char { kFree = 0, kCrease = 1, kBorder = 2, kCorner = 3 };
+    std::vector<char> moved(nv, kFree);  // feature a vertex was snapped onto
 
     // Corners: each corner pulls in its nearest output vertex (one vertex per corner).
     {
@@ -194,7 +273,7 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
             target[v] = c;
         }
         for (size_t v = 0; v < nv; ++v)
-            if (claim[v] < INFINITY) output.vertices[v] = target[v], moved[v] = 1, ++st.corners;
+            if (claim[v] < INFINITY) output.vertices[v] = target[v], moved[v] = kCorner, ++st.corners;
     }
 
     // Creases and borders.
@@ -205,7 +284,7 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
         Vec3 q;
         if (onBorder[v]) {
             if (!borderGrid.empty() && borderGrid.nearest(original[v], 0.5 * h[v], q) >= 0) {
-                output.vertices[v] = q, moved[v] = 1, ++st.borders;
+                output.vertices[v] = q, moved[v] = kBorder, ++st.borders;
             }
             continue;
         }
@@ -219,7 +298,7 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
             double l = norm(e);
             if (l > 0 && std::abs(dot(e, creaseGrid[s].dir)) > cos25 * l) ++parallel;
         }
-        if (parallel >= 2) output.vertices[v] = q, moved[v] = 1, ++st.creases;
+        if (parallel >= 2) output.vertices[v] = q, moved[v] = kCrease, ++st.creases;
     }
 
     // Grow snapped chains along creases: a neighbour of a snapped vertex joins the crease if it is
@@ -240,7 +319,7 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
                 Vec3 e = sub(q, output.vertices[v]);
                 double l = norm(e);
                 if (l < 0.3 * h[u] || std::abs(dot(e, creaseGrid[s].dir)) < cos25 * l) continue;
-                output.vertices[u] = q, moved[u] = 1, ++st.creases;
+                output.vertices[u] = q, moved[u] = kCrease, ++st.creases;
                 queue.push_back(u);
             }
         }
@@ -264,9 +343,12 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
         }
         if (bad) {
             output.vertices[v] = original[v];
+            moved[v] = kFree;
             ++st.reverted;
         }
     }
+    relax(output, input, vfaces, nbrs, onBorder, moved, creaseGrid, borderGrid, h, meanEdge,
+          relaxIterations);
     return st;
 }
 

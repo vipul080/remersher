@@ -21,6 +21,7 @@ const char* kUsage =
     "      --no-adaptive        uniform quad size instead of curvature-adaptive\n"
     "      --no-hard-edges      do not align edge loops to sharp creases\n"
     "      --curvature <f>      edge-loop alignment to curvature, 0..1 (default 0.5)\n"
+    "      --relax <n>          relaxation rounds on the final mesh (default 1)\n"
     "      --no-boundary        do not constrain open borders\n"
     "      --resample <mode>    auto | always | never: isotropic resampling of the input\n"
     "                           before solving (default auto: only for sliver-heavy input)\n"
@@ -56,6 +57,7 @@ int main(int argc, char** argv) {
         else if (arg == "--no-adaptive") settings.adaptiveSize = false;
         else if (arg == "--no-hard-edges") settings.detectHardEdges = false;
         else if (arg == "--curvature") settings.curvatureAlignment = std::atof(value().c_str());
+        else if (arg == "--relax") settings.relaxIterations = std::atoi(value().c_str());
         else if (arg == "--no-boundary") settings.preserveBoundary = false;
         else if (arg == "--resample") {
             std::string mode = value();

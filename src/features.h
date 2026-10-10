@@ -16,6 +16,9 @@ struct SnapStats {
 // then hard edges (only for vertices whose edge loop runs along the crease) and open borders.
 // The solver aligns edge loops with features but leaves them up to about half a quad away,
 // which rounds off corners and creases. hardEdgeAngle <= 0 snaps borders only.
-SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle);
+// Then relaxes the quad mesh for relaxIterations rounds (vertices kept on the surface and on their
+// features), which evens out quad shapes left distorted by the solver.
+SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle,
+                         int relaxIterations = 0);
 
 }  // namespace remersher
