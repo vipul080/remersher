@@ -86,3 +86,32 @@ jobs:
           tar -xf blender.tar.xz
       - name: Add-on smoke test
         run: ./blender-4.2.3-linux-x64/blender -b --factory-startup --python tests/blender_smoke.py -- dist/remersher_blender-linux-x86_64.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: vcpkg install eigen3 boost-graph --triplet x64-windows
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release -j 4
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          for m in cube torus plane_hole gear; do
+            ./build/Release/remersher.exe -i meshes/$m.obj -o $m.out.obj -t 1000 --timeout 60
+            test "$(grep -c '^f ' $m.out.obj)" -gt 100
+          done
+
+      - name: Package Blender add-on
+        run: python scripts/package_addon.py build/Release/remersher.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remersher-blender-windows
+          path: dist/*.zip
