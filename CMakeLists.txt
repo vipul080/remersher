@@ -74,7 +74,7 @@ target_include_directories(quadriflow SYSTEM PUBLIC
 target_compile_definitions(quadriflow PUBLIC EIGEN_MPL2_ONLY $<$<CXX_COMPILER_ID:MSVC>:_USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS>)
 set_target_properties(quadriflow PROPERTIES CXX_STANDARD 14)
 target_compile_options(quadriflow PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>)
-target_compile_options(quadriflow INTERFACE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-register -Wno-deprecated-register>)
+target_compile_options(quadriflow INTERFACE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-register> $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-deprecated-register>)
 target_link_libraries(quadriflow PUBLIC Eigen3::Eigen Boost::headers lemon)
 
 # --- remersher --------------------------------------------------------------------------------
