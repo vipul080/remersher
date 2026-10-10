@@ -9,8 +9,35 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-find_package(Eigen3 REQUIRED NO_MODULE)
-find_package(Boost REQUIRED CONFIG)
+# Eigen (header-only): use the system copy, or download it if missing.
+find_package(Eigen3 3.3 QUIET NO_MODULE)
+if(NOT TARGET Eigen3::Eigen)
+  message(STATUS "Eigen3 not found on the system; downloading Eigen 3.4.0")
+  include(FetchContent)
+  # SOURCE_SUBDIR points at a folder without a CMakeLists.txt, so this only downloads (Eigen's
+  # own build, tests and install rules are not needed for header-only use).
+  FetchContent_Declare(eigen
+    URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+    URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
+    SOURCE_SUBDIR do-not-build)
+  FetchContent_MakeAvailable(eigen)
+  add_library(Eigen3::Eigen INTERFACE IMPORTED)
+  target_include_directories(Eigen3::Eigen INTERFACE ${eigen_SOURCE_DIR})
+endif()
+
+# Boost (header-only parts: graph max-flow). Too large to download here, so explain how to get it.
+find_package(Boost QUIET CONFIG)
+if(NOT Boost_FOUND)
+  find_package(Boost QUIET MODULE)
+endif()
+if(NOT TARGET Boost::headers)
+  message(FATAL_ERROR "Boost headers not found. Install them with one of:\n"
+    "  Debian / Ubuntu:  sudo apt install libboost-dev\n"
+    "  Fedora:           sudo dnf install boost-devel\n"
+    "  Arch / Manjaro:   sudo pacman -S boost\n"
+    "  openSUSE:         sudo zypper install boost-devel\n"
+    "  macOS:            brew install boost")
+endif()
 
 # --- QuadriFlow (BSD) ------------------------------------------------------------------------
 set(QF_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/quadriflow)
