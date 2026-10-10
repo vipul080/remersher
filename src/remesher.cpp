@@ -167,65 +167,18 @@ bool deserialize(const std::string& buf, Mesh& m) {
     return pos == buf.size();
 }
 
-// Runs solveOnce in a forked child so hangs and crashes inside the solver cannot take down
-// the caller. Returns false on timeout, crash or a malformed result.
-bool solveIsolated(const TriangleInput& input, const Settings& s, int faceBudget, double timeout,
-                   Mesh& out, std::string& why) {
-    int fds[2];
-    if (pipe(fds) != 0) { why = "pipe failed"; return false; }
-    std::fflush(nullptr);
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        why = "fork failed";
-        return false;
-    }
-    if (pid == 0) {
-        close(fds[0]);
-        int rc = 0;
-        try {
-            std::string buf = serialize(solveOnce(input, s, faceBudget));
-            for (size_t off = 0; off < buf.size();) {
-                ssize_t n = write(fds[1], buf.data() + off, buf.size() - off);
-                if (n <= 0) { rc = 3; break; }
-                off += (size_t)n;
-            }
-        } catch (...) {
-            rc = 2;
-        }
-        close(fds[1]);
-        _exit(rc);
-    }
-
-    close(fds[1]);
-    std::string buf;
-    char chunk[1 << 16];
-    const auto deadline = Clock::now() + std::chrono::duration<double>(timeout);
-    bool timedOut = false;
-    for (;;) {
-        double left = std::chrono::duration<double>(deadline - Clock::now()).count();
-        if (left <= 0) { timedOut = true; break; }
-        pollfd pfd{fds[0], POLLIN, 0};
-        int ready = poll(&pfd, 1, (int)std::min(left * 1000.0 + 1, 1000.0));
-        if (ready < 0 && errno != EINTR) break;
-        if (ready <= 0) continue;
-        ssize_t n = read(fds[0], chunk, sizeof chunk);
-        if (n > 0) buf.append(chunk, (size_t)n);
-        else if (n == 0 || errno != EINTR) break;  // EOF or error
-    }
-    close(fds[0]);
-    if (timedOut) kill(pid, SIGKILL);
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
-
-    if (timedOut) { why = "timed out"; return false; }
-    if (WIFSIGNALED(status)) { why = std::string("crashed (") + strsignal(WTERMSIG(status)) + ")"; return false; }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) { why = "solver error"; return false; }
-    if (!deserialize(buf, out)) { why = "bad result"; return false; }
-    return true;
-}
 #endif
+
+struct SolveJob {
+    Settings settings;
+    int budget = 0;
+};
+
+struct SolveOutcome {
+    bool ok = false;
+    Mesh mesh;
+    std::string why;
+};
 
 bool isUsable(const Mesh& m, std::string& why) {
     for (const auto& v : m.vertices) {
@@ -237,20 +190,108 @@ bool isUsable(const Mesh& m, std::string& why) {
     return true;
 }
 
-bool solve(const TriangleInput& input, const Settings& s, int faceBudget, Mesh& out,
-           std::string& why) {
 #if REMERSHER_ISOLATE_SOLVES
-    if (s.solveTimeoutSeconds > 0)
-        return solveIsolated(input, s, faceBudget, s.solveTimeoutSeconds, out, why) &&
-               isUsable(out, why);
-#endif
-    try {
-        out = solveOnce(input, s, faceBudget);
-    } catch (const std::exception& e) {
-        why = e.what();
-        return false;
+// Runs each job's solveOnce in its own forked child, all concurrently, so hangs and crashes inside
+// the solver cannot take down the caller and calibration candidates use several cores.
+std::vector<SolveOutcome> solveIsolated(const TriangleInput& input, const std::vector<SolveJob>& jobs,
+                                        double timeout) {
+    struct Child {
+        pid_t pid = -1;
+        int fd = -1;
+        std::string buf;
+        bool done = false;
+    };
+    std::vector<SolveOutcome> out(jobs.size());
+    std::vector<Child> kids(jobs.size());
+    std::fflush(nullptr);
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        int fds[2];
+        if (pipe(fds) != 0) { out[i].why = "pipe failed"; kids[i].done = true; continue; }
+        pid_t pid = fork();
+        if (pid < 0) {
+            close(fds[0]);
+            close(fds[1]);
+            out[i].why = "fork failed";
+            kids[i].done = true;
+            continue;
+        }
+        if (pid == 0) {
+            close(fds[0]);
+            int rc = 0;
+            try {
+                std::string buf = serialize(solveOnce(input, jobs[i].settings, jobs[i].budget));
+                for (size_t off = 0; off < buf.size();) {
+                    ssize_t n = write(fds[1], buf.data() + off, buf.size() - off);
+                    if (n <= 0) { rc = 3; break; }
+                    off += (size_t)n;
+                }
+            } catch (...) {
+                rc = 2;
+            }
+            close(fds[1]);
+            _exit(rc);
+        }
+        close(fds[1]);
+        kids[i].pid = pid;
+        kids[i].fd = fds[0];
     }
-    return isUsable(out, why);
+
+    char chunk[1 << 16];
+    const auto deadline = Clock::now() + std::chrono::duration<double>(timeout);
+    for (;;) {
+        std::vector<pollfd> pfds;
+        std::vector<size_t> owner;
+        for (size_t i = 0; i < kids.size(); ++i)
+            if (!kids[i].done) pfds.push_back({kids[i].fd, POLLIN, 0}), owner.push_back(i);
+        if (pfds.empty()) break;
+        double left = std::chrono::duration<double>(deadline - Clock::now()).count();
+        if (left <= 0) break;
+        int ready = poll(pfds.data(), pfds.size(), (int)std::min(left * 1000.0 + 1, 1000.0));
+        if (ready < 0 && errno != EINTR) break;
+        if (ready <= 0) continue;
+        for (size_t k = 0; k < pfds.size(); ++k) {
+            if (!(pfds[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            Child& c = kids[owner[k]];
+            ssize_t n = read(c.fd, chunk, sizeof chunk);
+            if (n > 0) c.buf.append(chunk, (size_t)n);
+            else if (n == 0 || errno != EINTR) c.done = true;  // EOF or error
+        }
+    }
+
+    for (size_t i = 0; i < kids.size(); ++i) {
+        Child& c = kids[i];
+        if (c.pid < 0) continue;
+        const bool timedOut = !c.done;
+        close(c.fd);
+        if (timedOut) kill(c.pid, SIGKILL);
+        int status = 0;
+        while (waitpid(c.pid, &status, 0) < 0 && errno == EINTR) {}
+        SolveOutcome& o = out[i];
+        if (timedOut) o.why = "timed out";
+        else if (WIFSIGNALED(status)) o.why = std::string("crashed (") + strsignal(WTERMSIG(status)) + ")";
+        else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) o.why = "solver error";
+        else if (!deserialize(c.buf, o.mesh)) o.why = "bad result";
+        else o.ok = isUsable(o.mesh, o.why);
+    }
+    return out;
+}
+#endif
+
+std::vector<SolveOutcome> solveMany(const TriangleInput& input, const std::vector<SolveJob>& jobs) {
+#if REMERSHER_ISOLATE_SOLVES
+    if (!jobs.empty() && jobs[0].settings.solveTimeoutSeconds > 0)
+        return solveIsolated(input, jobs, jobs[0].settings.solveTimeoutSeconds);
+#endif
+    std::vector<SolveOutcome> out(jobs.size());
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        try {
+            out[i].mesh = solveOnce(input, jobs[i].settings, jobs[i].budget);
+            out[i].ok = isUsable(out[i].mesh, out[i].why);
+        } catch (const std::exception& e) {
+            out[i].why = e.what();
+        }
+    }
+    return out;
 }
 
 }  // namespace
@@ -306,73 +347,94 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     double fallbackBadness = INFINITY;
     int fallbackBudget = 0;
 
-    // The face budget only sets the target edge length, so the solver's actual count drifts
-    // (singularities, adaptivity, hard edges). Count scales ~linearly with the budget, so
-    // re-solve with the budget corrected by the observed ratio.
-    for (int pass = 0; pass <= std::max(0, settings.countCalibrationPasses);) {
-        Mesh result;
-        std::string why;
-        bool ok = solve(tris, attempt, budget, result, why);
-        if (ok) {
-            repairPolygonMesh(result);
-            if (settings.detectHardEdges || settings.preserveBoundary)
-                snapToFeatures(result, clean, settings.detectHardEdges ? 60.0 : 0.0);
+    // Repairs, snaps and quality-checks one solver result. Returns false if it was rejected.
+    auto finish = [&](SolveOutcome& o, int budgetUsed) {
+        if (!o.ok) return false;
+        repairPolygonMesh(o.mesh);
+        if (settings.detectHardEdges || settings.preserveBoundary)
+            snapToFeatures(o.mesh, clean, settings.detectHardEdges ? 60.0 : 0.0);
+        // The solver occasionally collapses or folds whole regions without reporting an error;
+        // reject those results like a crash.
+        const QualityCheck qc = checkQuality(clean, o.mesh);
+        if (qc.acceptable(&o.why)) return true;
+        const double badness = qc.farOutputFraction + qc.uncoveredFraction + qc.flippedFraction;
+        if (!o.mesh.faces.empty() && badness < fallbackBadness) {
+            fallbackBadness = badness;
+            fallback = o.mesh;
+            fallbackBudget = budgetUsed;
         }
-        if (ok) {
-            // The solver occasionally collapses or folds whole regions without reporting an
-            // error; reject those results like a crash.
-            const QualityCheck qc = checkQuality(clean, result);
-            ok = qc.acceptable(&why);
-            if (!ok) {
-                const double badness = qc.farOutputFraction + qc.uncoveredFraction + qc.flippedFraction;
-                if (!result.faces.empty() && badness < fallbackBadness) {
-                    fallbackBadness = badness;
-                    fallback = result;
-                    fallbackBudget = budget;
-                }
-                char detail[128];
-                std::snprintf(detail, sizeof detail, " (far %.1f%%, holes %.1f%%, folded %.1f%%)",
-                              100 * qc.farOutputFraction, 100 * qc.uncoveredFraction,
-                              100 * qc.flippedFraction);
-                why += detail;
-            }
+        char detail[128];
+        std::snprintf(detail, sizeof detail, " (far %.1f%%, holes %.1f%%, folded %.1f%%)",
+                      100 * qc.farOutputFraction, 100 * qc.uncoveredFraction, 100 * qc.flippedFraction);
+        o.why += detail;
+        o.ok = false;
+        return false;
+    };
+    auto consider = [&](Mesh& m, int budgetUsed) {
+        ++solves;
+        const double error = std::abs((double)m.faces.size() - target) / target;
+        if (log)
+            log("solve " + std::to_string(solves) + ": budget " + std::to_string(budgetUsed) + " -> " +
+                std::to_string(m.faces.size()) + " faces");
+        if (!m.faces.empty() && error < bestError) {
+            bestError = error;
+            best = std::move(m);
+            bestBudget = budgetUsed;
         }
-        if (!ok) {
-            ++failed;
-            ++consecutiveFailures;
-            if (log) log("solve rejected at budget " + std::to_string(budget) + ": " + why);
-            if (failed > settings.maxFailedSolves) break;
-            if (usingResampled && solves == 0 && consecutiveFailures >= 2) {
-                // Resampling can occasionally produce input the solver chokes on; fall back to the
-                // cleaned original rather than burning the remaining attempts.
-                if (log) log("falling back to the original triangulation");
-                tris = toSolverInput(clean);
-                usingResampled = false;
-                consecutiveFailures = 0;
-                budget = settings.targetQuadCount;
-                continue;
-            }
-            // Failures are specific to one seed/budget combination; perturb both and retry.
-            attempt.seed += 1;
-            budget = std::max(1, (int)std::lround(budget * 1.03));
+    };
+
+    // 1. A first solve, retried with perturbed seed/budget (and finally without resampling) until
+    //    one passes.
+    for (;;) {
+        std::vector<SolveOutcome> res = solveMany(tris, {{attempt, budget}});
+        if (finish(res[0], budget)) {
+            consider(res[0].mesh, budget);
+            break;
+        }
+        ++failed;
+        ++consecutiveFailures;
+        if (log) log("solve rejected at budget " + std::to_string(budget) + ": " + res[0].why);
+        if (failed > settings.maxFailedSolves) break;
+        if (usingResampled && consecutiveFailures >= 2) {
+            // Resampling can occasionally produce input the solver chokes on; fall back to the
+            // cleaned original rather than burning the remaining attempts.
+            if (log) log("falling back to the original triangulation");
+            tris = toSolverInput(clean);
+            usingResampled = false;
+            consecutiveFailures = 0;
+            budget = settings.targetQuadCount;
             continue;
         }
-        ++pass;
-        ++solves;
-        consecutiveFailures = 0;
-        const double count = (double)result.faces.size();
-        const double error = std::abs(count - target) / target;
-        if (log)
-            log("solve " + std::to_string(solves) + ": budget " + std::to_string(budget) + " -> " +
-                std::to_string((long)count) + " faces");
-        if (!result.faces.empty() && error < bestError) {
-            bestError = error;
-            best = std::move(result);
-            bestBudget = budget;
+        // Failures are specific to one seed/budget combination; perturb both and retry.
+        attempt.seed += 1;
+        budget = std::max(1, (int)std::lround(budget * 1.03));
+    }
+
+    // 2. Count calibration. The face budget only sets the target edge length, so the solver's
+    //    count drifts (singularities, adaptivity, hard edges) and is noisy. It scales roughly
+    //    linearly with the budget, so solve a few candidates around the corrected budget at once
+    //    and keep the closest.
+    int passesLeft = std::max(0, settings.countCalibrationPasses);
+    while (!best.faces.empty() && bestError > settings.countTolerance && passesLeft > 0) {
+        const double ratio = std::clamp(target / (double)best.faces.size(), 0.25, 4.0);
+        const double estimate = bestBudget * ratio;
+        const int n = std::min(passesLeft, std::max(1, settings.maxParallelSolves));
+        std::vector<SolveJob> jobs;
+        for (int i = 0; i < n; ++i) {
+            const double spread = n == 1 ? 1.0 : 1.0 + 0.08 * (i - (n - 1) / 2.0);
+            jobs.push_back({attempt, std::max(1, (int)std::lround(estimate * spread))});
         }
-        if (count == 0 || bestError <= settings.countTolerance) break;
-        const double ratio = std::clamp(target / count, 0.25, 4.0);
-        budget = std::max(1, (int)std::lround(budget * ratio));
+        passesLeft -= n;
+        std::vector<SolveOutcome> res = solveMany(tris, jobs);
+        for (size_t i = 0; i < res.size(); ++i) {
+            if (finish(res[i], jobs[i].budget)) {
+                consider(res[i].mesh, jobs[i].budget);
+            } else {
+                ++failed;
+                if (log) log("solve rejected at budget " + std::to_string(jobs[i].budget) + ": " + res[i].why);
+            }
+        }
+        attempt.seed += 1;  // a fresh seed if another round follows
     }
 
     if (best.faces.empty() && !fallback.faces.empty()) {

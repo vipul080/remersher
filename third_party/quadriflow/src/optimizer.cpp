@@ -224,11 +224,14 @@ void Optimizer::optimize_scale(Hierarchy& mRes, VectorXd& rho, int adaptive) {
             }
         }
         A.setFromTriplets(lhsTriplets.begin(), lhsTriplets.end());
-        LinearSolver<Eigen::SparseMatrix<double>> solver;
-        solver.analyzePattern(A);
-
-        solver.factorize(A);
-
+        // remersher: A = lambda*I + a connection Laplacian, i.e. symmetric positive definite and
+        // well conditioned, and the result is only a smooth sizing field. Conjugate gradients
+        // reach the needed accuracy in a few dozen iterations, where the sparse LU
+        // factorization of this 2|V| x 2|V| system took most of the solve time.
+        Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> solver;
+        solver.setTolerance(1e-7);
+        solver.setMaxIterations(500);
+        solver.compute(A);
         VectorXd result = solver.solve(rhs);
 
         double total_area = 0;

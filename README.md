@@ -32,7 +32,8 @@ cmake --build build -j
 | option | default | meaning |
 |---|---|---|
 | `-t, --target <n>` | 5000 | target quad count |
-| `--passes <n>` | 2 | extra solves used to land close to the target count |
+| `--passes <n>` | 6 | extra solves used to land close to the target count |
+| `-j, --jobs <n>` | 3 | calibration solves run in parallel (macOS / Linux) |
 | `--tolerance <f>` | 0.03 | stop calibrating once within this fraction of the target |
 | `--no-adaptive` | off | uniform quad size instead of curvature-adaptive |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
@@ -109,7 +110,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Remove non-manifold edges and folded faces from the output
 - [x] Snap edge loops onto hard edges, corners and borders
 - [ ] Proper corner singularities (valence-3 poles on cube-like corners)
-- [ ] Speed: large targets take 30–90 s
+- [x] Speed: CG sizing solve, faster resampling, parallel calibration (median case 3 s)
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
 - [ ] Vertex-color density painting

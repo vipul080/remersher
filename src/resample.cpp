@@ -167,6 +167,7 @@ class Remesher {
     std::unordered_set<uint64_t> features;
     std::unordered_set<int> frozen;  // vertices on non-manifold edges
     std::vector<char> touched;
+    std::vector<int> featureDeg;  // feature edges per vertex, refreshed by buildAdjacency
 
     static constexpr double M_PI_ = 3.14159265358979323846;
 
@@ -183,13 +184,13 @@ class Remesher {
             }
         }
         touched.assign(V.size(), 0);
+        featureDeg.assign(V.size(), 0);
+        for (const auto& kv : edgeFaces)
+            if (features.count(kv.first)) ++featureDeg[kv.first >> 32], ++featureDeg[kv.first & 0xffffffff];
     }
 
-    int featureDegree(int v) const {
-        int n = 0;
-        for (int u : neighbours(v)) n += features.count(key(v, u)) ? 1 : 0;
-        return n;
-    }
+    // Valid for vertices whose neighbourhood has not changed since the last buildAdjacency.
+    int featureDegree(int v) const { return featureDeg[v]; }
 
     bool locked(int v) const { return frozen.count(v) || featureDegree(v) > 0; }
 
@@ -218,19 +219,21 @@ class Remesher {
             if (len > hi) longEdges.push_back({len, k});
         }
         std::sort(longEdges.rbegin(), longEdges.rend());
+        // A split only rewrites the (one or two) faces on its edge, so locking those faces is
+        // enough to keep the adjacency of every other edge valid within this pass.
+        std::vector<char> faceBusy(F.size(), 0);
         int count = 0;
         for (const auto& [len, k] : longEdges) {
             int a = (int)(k >> 32), b = (int)(k & 0xffffffff);
             const auto& faces = edgeFaces[k];
-            bool busy = touched[a] || touched[b];
-            for (int f : faces)
-                for (int v : F[f]) busy |= touched[v] != 0;
+            bool busy = false;
+            for (int f : faces) busy |= faceBusy[f] != 0;
             if (busy) continue;
 
             const int m = (int)V.size();
             V.push_back((V[a] + V[b]) * 0.5);
-            vertFaces.emplace_back();
-            touched.push_back(1);
+            featureDeg.push_back(0);
+            touched.push_back(0);
             for (int f : faces) {
                 // Rotate so the split edge is (x, y) in the face's winding order.
                 Tri t = F[f];
@@ -239,14 +242,14 @@ class Remesher {
                 F[f] = {t[0], m, t[2]};
                 F.push_back({m, t[1], t[2]});
                 alive.push_back(1);
-                touched[t[2]] = 1;
+                faceBusy[f] = 1;
+                faceBusy.push_back(1);
             }
             if (features.count(k)) {
                 features.erase(k);
                 features.insert(key(a, m));
                 features.insert(key(m, b));
             }
-            touched[a] = touched[b] = 1;
             ++count;
         }
         return count;

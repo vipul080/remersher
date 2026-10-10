@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,7 +15,8 @@ const char* kUsage =
     "\n"
     "options:\n"
     "  -t, --target <n>         target quad count (default 5000)\n"
-    "      --passes <n>         extra solves to hit the target count (default 2)\n"
+    "      --passes <n>         extra solves to hit the target count (default 6)\n"
+    "  -j, --jobs <n>           calibration solves run in parallel (default 3)\n"
     "      --tolerance <f>      acceptable count error as a fraction (default 0.03)\n"
     "      --no-adaptive        uniform quad size instead of curvature-adaptive\n"
     "      --no-hard-edges      do not align edge loops to sharp creases\n"
@@ -48,6 +50,7 @@ int main(int argc, char** argv) {
         else if (arg == "-o" || arg == "--output") output = value();
         else if (arg == "-t" || arg == "--target") settings.targetQuadCount = std::atoi(value().c_str());
         else if (arg == "--passes") settings.countCalibrationPasses = std::atoi(value().c_str());
+        else if (arg == "-j" || arg == "--jobs") settings.maxParallelSolves = std::atoi(value().c_str());
         else if (arg == "--tolerance") settings.countTolerance = std::atof(value().c_str());
         else if (arg == "--no-adaptive") settings.adaptiveSize = false;
         else if (arg == "--no-hard-edges") settings.detectHardEdges = false;
@@ -72,7 +75,12 @@ int main(int argc, char** argv) {
         remersher::Mesh mesh = remersher::readObj(input);
         remersher::Report report;
         remersher::LogFn log;
-        if (!quiet) log = [](const std::string& line) { std::fprintf(stderr, "%s\n", line.c_str()); };
+        const auto start = std::chrono::steady_clock::now();
+        if (!quiet)
+            log = [start](const std::string& line) {
+                double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                std::fprintf(stderr, "[%6.2fs] %s\n", t, line.c_str());
+            };
         remersher::Mesh result = remersher::remesh(mesh, settings, &report, log);
         remersher::writeObj(output, result);
         if (!quiet)

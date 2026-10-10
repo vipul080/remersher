@@ -17,7 +17,9 @@ struct Settings {
     // Desired number of quads in the output.
     int targetQuadCount = 5000;
     // Number of extra solves used to steer the result towards targetQuadCount (0 = single solve).
-    int countCalibrationPasses = 2;
+    int countCalibrationPasses = 6;
+    // Calibration solves run concurrently in groups of up to this many (POSIX only).
+    int maxParallelSolves = 3;
     // Stop calibrating once the result is within this fraction of the target.
     double countTolerance = 0.03;
     // Let quads get smaller in high-curvature regions and larger in flat regions.

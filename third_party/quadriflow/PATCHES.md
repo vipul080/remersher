@@ -7,4 +7,6 @@ QuadriFlow is vendored (see UPSTREAM.txt) because remersher modifies the solver.
   edges, fixing an infinite loop on non-manifold intermediate connectivity.
 - `src/parametrizer-flip.cpp` (`FixHoles`): the boundary fan walk is capped; a corrupted loop is
   skipped instead of spinning forever.
+- `src/optimizer.cpp` (`optimize_scale`): the sizing-field system (SPD, well conditioned) is
+  solved with conjugate gradients instead of sparse LU, which was ~65% of solve time.
 - `3rd/MapleCOMSPS_LRB`: not vendored (only used by an optional SAT path that is not built).
