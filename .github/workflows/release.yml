@@ -1,0 +1,53 @@
+name: release
+
+# Push a tag like v0.1.0 to build the Blender add-on (with the CLI bundled) for every platform
+# and attach the zips to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest      # Apple Silicon, macOS 12+
+          - os: ubuntu-22.04      # glibc 2.35+, runs on most current distros
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install eigen boost
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libeigen3-dev libboost-dev
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install eigen3 boost-graph --triplet x64-windows
+
+      - name: Build (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4
+          python3 scripts/package_addon.py build/remersher
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release -j 4
+          python scripts/package_addon.py build/Release/remersher.exe
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

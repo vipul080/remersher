@@ -55,8 +55,11 @@ Blender) never freezes.
 
 ## Blender add-on
 
+Download `remersher_blender-<platform>.zip` from the
+[releases page](https://github.com/vipul080/remersher/releases), or build it yourself:
+
 ```bash
-./scripts/package_addon.sh        # -> dist/remersher_blender-<platform>.zip (CLI bundled inside)
+python3 scripts/package_addon.py  # -> dist/remersher_blender-<platform>.zip (CLI bundled inside)
 ```
 
 In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick the zip (Blender 3.6+).
@@ -131,7 +134,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Vertex-color density painting
 - [x] Symmetry (X / Y / Z)
 - [x] Keep material borders and sharp (split-normal) edges as edge loops
-- [ ] Windows build and prebuilt release binaries
+- [x] Windows build (CI) and a release workflow publishing add-on zips for macOS, Linux and Windows
 
 ## License
 
