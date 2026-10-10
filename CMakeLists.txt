@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
+# Run on older macOS than the build machine (must be set before project()).
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
 project(remersher VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
