@@ -16,6 +16,7 @@
 #include <map>
 #include <cstring>
 #include <memory>
+#include <unordered_set>
 #include <stdexcept>
 
 #include "config.hpp"
@@ -184,14 +185,14 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
     qflow::Optimizer::optimize_scale(field->hierarchy, field->rho, field->flag_adaptive_scale);
     // QuadriFlow's own "adaptive" field only varies by about +-25% (it mostly follows the field's
     // slope); add a curvature-driven size on top so the slider behaves like users expect.
-    applyCurvatureSizing(field->hierarchy, s.adaptivity);
+    const bool sized = applyCurvatureSizing(field->hierarchy, s.adaptivity, s.protectThinFeatures);
     if (input.density)
         applyDensityPaint(field->hierarchy, *input.density, field->normalize_scale, field->normalize_offset);
     field->flag_adaptive_scale = 1;  // the position solve always uses the scale field
     qflow::Optimizer::optimize_positions(field->hierarchy, field->flag_adaptive_scale);
     field->ComputePositionSingularities();
     // Upstream calls this without the sizing field, which made "adaptive" output uniform.
-    field->ComputeIndexMap(s.adaptivity > 50 || input.density ? 1 : 0);
+    field->ComputeIndexMap(sized || input.density ? 1 : 0);
 
     return fromParametrizer(*field);
 }
@@ -252,6 +253,21 @@ struct SolveOutcome {
     Mesh mesh;
     std::string why;
 };
+
+// Euler characteristic V - E + F of a polygon mesh (vertices referenced by faces only). A change
+// between input and output means holes or handles were closed or created.
+long eulerCharacteristic(const std::vector<std::vector<int>>& faces) {
+    std::unordered_set<int> verts;
+    std::unordered_set<uint64_t> edges;
+    for (const auto& f : faces)
+        for (size_t i = 0; i < f.size(); ++i) {
+            verts.insert(f[i]);
+            int a = f[i], b = f[(i + 1) % f.size()];
+            if (a > b) std::swap(a, b);
+            edges.insert(((uint64_t)(uint32_t)a << 32) | (uint32_t)b);
+        }
+    return (long)verts.size() - (long)edges.size() + (long)faces.size();
+}
 
 bool isUsable(const Mesh& m, std::string& why) {
     for (const auto& v : m.vertices) {
@@ -558,6 +574,14 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     int fallbackBudget = 0;
 
     // Repairs, snaps and quality-checks one solver result. Returns false if it was rejected.
+    long inputEuler = 0;
+    {
+        std::vector<std::vector<int>> tf;
+        tf.reserve(clean.triangles.size());
+        for (const auto& t : clean.triangles) tf.push_back({t[0], t[1], t[2]});
+        inputEuler = eulerCharacteristic(tf);
+    }
+    bool topologyLost = false;
     auto finish = [&](SolveOutcome& o, int budgetUsed) {
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
@@ -565,6 +589,21 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
         // The solver occasionally collapses or folds whole regions without reporting an error;
         // reject those results like a crash.
+        const long euler = eulerCharacteristic(o.mesh.faces);
+        if (euler != inputEuler) {
+            // Holes or handles were closed (or opened): usually thin features too small for the
+            // quad size. Keep it only as a last-resort fallback and retry with protection.
+            topologyLost = true;
+            if (!o.mesh.faces.empty() && 2.0 < fallbackBadness) {
+                fallbackBadness = 2.0;
+                fallback = o.mesh;
+                fallbackBudget = budgetUsed;
+            }
+            o.why = "topology changed (Euler characteristic " + std::to_string(inputEuler) + " -> " +
+                    std::to_string(euler) + ")";
+            o.ok = false;
+            return false;
+        }
         const QualityCheck qc = checkQuality(clean, o.mesh);
         if (qc.acceptable(&o.why)) return true;
         const double badness = qc.farOutputFraction + qc.uncoveredFraction + qc.flippedFraction;
@@ -620,6 +659,11 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             budget = settings.targetQuadCount;
             continue;
         }
+        if (topologyLost && !attempt.protectThinFeatures) {
+            if (log) log("retrying with thin-feature protection");
+            attempt.protectThinFeatures = true;
+            continue;
+        }
         // Failures are specific to one seed/budget combination; perturb both and retry.
         attempt.seed += 1;
         budget = std::max(1, (int)std::lround(budget * 1.03));
@@ -661,6 +705,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             }
         }
         attempt.seed += 1;  // a fresh seed if another round follows
+        if (topologyLost) attempt.protectThinFeatures = true;
     }
 
     if (best.faces.empty() && !fallback.faces.empty()) {

@@ -160,8 +160,8 @@ int addCurvatureConstraints(Hierarchy& h, double strength) {
     return constrained;
 }
 
-void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
-    if (adaptivity <= 0 || h.mV.empty() || h.mS.empty()) return;
+bool applyCurvatureSizing(Hierarchy& h, double adaptivity, bool protectThin) {
+    if (h.mV.empty() || h.mS.empty()) return false;
     const auto& N = h.mN[0];
     const int n = (int)h.mV[0].cols();
     CurvatureField cf = estimateCurvature(h);
@@ -181,23 +181,34 @@ void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
         meanKappa += kappa[v];
         ++counted;
     }
-    if (!counted) return;
+    if (!counted) return false;
     meanKappa /= counted;
     // Flat (or nearly flat) input: nothing to adapt to, and the ratios below would be 0/0.
-    if (!(meanKappa * h.mScale > 1e-6)) return;
-    // Relative quad size (kappa_mean / kappa)^gamma: at slider 100 the edge length is inversely
-    // proportional to curvature, at 75 to its square root. The quarter-mean offset keeps flat
+    if (!(meanKappa * h.mScale > 1e-6)) return false;
+    // Relative quad size (kappa_mean / kappa)^gamma, gamma growing from 0 at slider 50 to 0.4 at
+    // 100 (stronger settings distorted the quads). The quarter-mean offset keeps flat
     // regions finite; sizes are clamped to 1/4..4 of the base size.
     // Up to 50 (the default) the solver's own mild adaptivity is used as is; 50..100 blends in
     // curvature-driven sizing. Applying it at the default distorted quads across the benchmark.
     const double gamma = 0.4 * std::clamp((adaptivity - 50.0) / 50.0, 0.0, 1.0);
-    if (gamma <= 0) return;
+    if (gamma <= 0 && !protectThin) return false;
     std::vector<double> logSize(n, 0.0);
+    bool changed = false;
     for (int v = 0; v < n; ++v) {
         if (!cf.valid[v]) continue;
-        const double ratio = (meanKappa * 1.25) / (kappa[v] + 0.25 * meanKappa);
-        logSize[v] = std::clamp(gamma * std::log(ratio), std::log(0.25), std::log(4.0));
+        double ls = 0;
+        if (gamma > 0) {
+            const double ratio = (meanKappa * 1.25) / (kappa[v] + 0.25 * meanKappa);
+            ls = gamma * std::log(ratio);
+        }
+        // Thin-feature protection: at least about two quads per radian of curvature, so small
+        // holes and pipes are not collapsed (used only after a solve changed the topology).
+        const double kh = kappa[v] * h.mScale;
+        if (protectThin && kh > 0.5) ls = std::min(ls, std::log(0.5 / kh));
+        logSize[v] = std::clamp(ls, std::log(0.25), std::log(4.0));
+        changed |= logSize[v] != 0;
     }
+    if (!changed) return false;
     // Smooth in log space so the size changes gradually (quad meshes need room to change density).
     for (int round = 0; round < 8; ++round) {
         std::vector<double> next = logSize;
@@ -220,6 +231,7 @@ void applyCurvatureSizing(Hierarchy& h, double adaptivity) {
         S(1, v) *= size[v] / mean;
     }
     propagateSizing(h);
+    return true;
 }
 
 void propagateSizing(Hierarchy& h) {

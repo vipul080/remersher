@@ -48,6 +48,9 @@ struct Settings {
     // Isotropic resampling of the input before solving. The field solver is unstable on inputs
     // with many slivers (e.g. dense UV spheres); resampling fixes that at some extra cost.
     Resample resample = Resample::Auto;
+    // Extra resolution for thin features (small holes, pipes). Switched on automatically for a
+    // retry when a solve changed the input's topology.
+    bool protectThinFeatures = false;
     // Seed for the randomized parts of the solver; results are deterministic per seed.
     int seed = 0;
     // Per-solve time limit. On POSIX each solve runs in a child process, so a solve that hangs or

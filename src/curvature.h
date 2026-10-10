@@ -19,7 +19,9 @@ int addCurvatureConstraints(qflow::Hierarchy& h, double strength);
 // there and larger in flat regions. adaptivity is the 0..100 slider value; up to 50 the field is
 // left untouched, above 50 curvature sizing is blended in. The field keeps a mean of 1, so the
 // face budget still sets the overall density.
-void applyCurvatureSizing(qflow::Hierarchy& h, double adaptivity);
+// With protectThin, strongly curved spots also get at least ~2 quads per radian so thin features
+// (small holes, pipes) survive. Returns false if the field was left unchanged.
+bool applyCurvatureSizing(qflow::Hierarchy& h, double adaptivity, bool protectThin = false);
 
 // Copies the finest level's sizing field (mS[0]) down the hierarchy to the coarser levels.
 void propagateSizing(qflow::Hierarchy& h);
