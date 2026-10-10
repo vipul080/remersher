@@ -109,7 +109,7 @@ def fmt(fmt_str: str, v) -> str:
     return fmt_str.format(v)
 
 
-def write_report(rows: list[dict], out_dir: str, rev: str) -> str:
+def write_report(rows: list[dict], out_dir: str, rev: str, previous: list[dict] | None = None) -> str:
     scored = [r for r in rows if r["ours"] and r["ref"]]
     lines = [f"# Remersher benchmark", "",
              f"- date: {dt.datetime.now():%Y-%m-%d %H:%M}", f"- remersher: `{rev}`",
@@ -134,6 +134,31 @@ def write_report(rows: list[dict], out_dir: str, rev: str) -> str:
             lines.append(f"| {key} | {w} | {t} | {l} | {statistics.median(a for a, _ in pairs):.3f} "
                          f"| {statistics.median(b for _, b in pairs):.3f} |")
         lines += [f"| **all metrics** | **{total[0]}** | **{total[1]}** | **{total[2]}** | | |", ""]
+
+    if previous:
+        # Magnitude matters as well as win/tie/loss: a case that was already lost can still get
+        # much worse. List metrics of ours that moved by more than the tie margin and 25%.
+        prev = {r["case"]: r for r in previous if r.get("ours")}
+        changes = []
+        for r in rows:
+            p = prev.get(r["case"])
+            if not r["ours"] or not p:
+                continue
+            for key in ("hausdorff_pct", "dev_mean_pct", "angle_dev_mean", "irregular_pct", "folded_pct"):
+                a, b = p["ours"].get(key), r["ours"].get(key)
+                if a is None or b is None or any(isinstance(x, float) and math.isnan(x) for x in (a, b)):
+                    continue
+                if abs(b - a) > TIE_EPS[key] and abs(b - a) > 0.25 * max(abs(a), abs(b)):
+                    changes.append((b - a) / max(abs(a), 1e-9), r["case"], key, a, b)
+        worse = sorted((c for c in changes if c[0] > 0), reverse=True)[:15]
+        better = sorted(c for c in changes if c[0] < 0)[:15]
+        lines += ["## Changes vs previous run", ""]
+        if not changes:
+            lines += ["No metric moved by more than the tie margin and 25%.", ""]
+        for title, items in (("Worse", worse), ("Better", better)):
+            if items:
+                lines += [f"**{title}**", "", "| case | metric | before | after |", "|---|---|---:|---:|"]
+                lines += [f"| {c} | {k} | {a:.3f} | {b:.3f} |" for _, c, k, a, b in items] + [""]
 
     lines += ["## Per case", "", "Each cell is `ours / reference`.", "",
               "| case | target | time s | " + " | ".join(c[1] for c in TABLE_COLS) + " | notes |",
@@ -203,10 +228,15 @@ def main():
                        + [(r["ours"] or {}).get(k, "") for k in keys]
                        + [(r["ref"] or {}).get(k, "") for k in keys])
 
-    report = write_report(rows, out_dir, rev)
     latest = os.path.join(HERE, "results", "latest")
-    shutil.rmtree(latest, ignore_errors=True)
-    shutil.copytree(out_dir, latest, ignore=shutil.ignore_patterns("meshes"))
+    previous = None
+    if not args.only and os.path.exists(os.path.join(latest, "results.json")):
+        with open(os.path.join(latest, "results.json")) as fh:
+            previous = json.load(fh)["rows"]
+    report = write_report(rows, out_dir, rev, previous)
+    if not args.only:  # partial runs must not become the baseline for the next comparison
+        shutil.rmtree(latest, ignore_errors=True)
+        shutil.copytree(out_dir, latest, ignore=shutil.ignore_patterns("meshes"))
     print("\n" + report)
     print(f"results: {out_dir}")
 
