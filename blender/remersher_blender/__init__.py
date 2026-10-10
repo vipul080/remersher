@@ -51,6 +51,9 @@ class RemersherSettings(bpy.types.PropertyGroup):
     preserve_boundary: bpy.props.BoolProperty(
         name="Preserve Borders", default=True,
         description="Keep open borders of the mesh")
+    symmetry_x: bpy.props.BoolProperty(name="X", description="Mirror symmetry across the object's X plane")
+    symmetry_y: bpy.props.BoolProperty(name="Y", description="Mirror symmetry across the object's Y plane")
+    symmetry_z: bpy.props.BoolProperty(name="Z", description="Mirror symmetry across the object's Z plane")
     seed: bpy.props.IntProperty(
         name="Seed", default=0, min=0,
         description="Try another seed for a different layout")
@@ -112,7 +115,8 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         settings = core.RemeshSettings(
             target_quad_count=s.target_quad_count, adaptive_size=s.adaptive_size,
             detect_hard_edges=s.detect_hard_edges, preserve_boundary=s.preserve_boundary,
-            seed=s.seed)
+            seed=s.seed,
+            symmetry=("x" if s.symmetry_x else "") + ("y" if s.symmetry_y else "") + ("z" if s.symmetry_z else ""))
 
         self._workdir = tempfile.mkdtemp(prefix="remersher_")
         in_path = os.path.join(self._workdir, "in.obj")
@@ -212,6 +216,11 @@ class REMERSHER_PT_panel(bpy.types.Panel):
         col.prop(s, "adaptive_size")
         col.prop(s, "detect_hard_edges")
         col.prop(s, "preserve_boundary")
+        row = layout.row(align=True)
+        row.label(text="Symmetry")
+        row.prop(s, "symmetry_x", toggle=True)
+        row.prop(s, "symmetry_y", toggle=True)
+        row.prop(s, "symmetry_z", toggle=True)
         layout.prop(s, "seed")
         layout.prop(s, "hide_original")
         layout.operator(REMERSHER_OT_remesh.bl_idname, icon="MOD_REMESH")

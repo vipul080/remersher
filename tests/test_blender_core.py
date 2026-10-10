@@ -35,6 +35,9 @@ def test_build_command():
     assert cmd[cmd.index("--target") + 1] == "1234"
     assert cmd[cmd.index("--seed") + 1] == "7"
     assert "--no-adaptive" in cmd and "--no-boundary" in cmd and "--no-hard-edges" not in cmd
+    assert "--symmetry" not in cmd
+    cmd = core.build_command("/bin/remersher", "a.obj", "b.obj", core.RemeshSettings(symmetry="Xz"))
+    assert cmd[cmd.index("--symmetry") + 1] == "xz"
 
 
 def test_find_binary(tmp, binary):

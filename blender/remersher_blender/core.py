@@ -18,6 +18,7 @@ class RemeshSettings:
     detect_hard_edges: bool = True
     preserve_boundary: bool = True
     seed: int = 0
+    symmetry: str = ""  # any of "x", "y", "z"
     timeout: float = 120.0
 
 
@@ -37,6 +38,9 @@ def find_binary(addon_dir: str, preferred: str = "") -> str | None:
 def build_command(binary: str, in_path: str, out_path: str, s: RemeshSettings) -> list[str]:
     cmd = [binary, "-i", in_path, "-o", out_path, "--target", str(int(s.target_quad_count)),
            "--seed", str(int(s.seed)), "--timeout", str(float(s.timeout))]
+    axes = "".join(a for a in "xyz" if a in s.symmetry.lower())
+    if axes:
+        cmd += ["--symmetry", axes]
     if not s.adaptive_size:
         cmd.append("--no-adaptive")
     if not s.detect_hard_edges:

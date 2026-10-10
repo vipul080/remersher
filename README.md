@@ -58,7 +58,7 @@ Blender) never freezes.
 
 In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick the zip (Blender 3.6+).
 The **Remersher** tab in the 3D view sidebar has Target Quad Count, Adaptive Size, Detect Hard
-Edges, Preserve Borders and Seed. *Remesh* runs in the background (Esc cancels), remeshes the
+Edges, Preserve Borders, Symmetry X/Y/Z and Seed. *Remesh* runs in the background (Esc cancels), remeshes the
 active object with its modifiers applied, and adds the result as a new object with the same
 transform and materials. CI builds the zip for Linux and macOS on every push.
 
@@ -122,7 +122,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Blender add-on (target count, adaptive size, hard edges, one-click remesh)
 - [ ] Continuous adaptivity (0–100) instead of on/off
 - [ ] Vertex-color density painting
-- [x] Symmetry (X / Y / Z) in the CLI (not yet in the Blender panel)
+- [x] Symmetry (X / Y / Z)
 - [ ] Split by materials / normals
 - [ ] Windows build and prebuilt release binaries
 
