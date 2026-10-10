@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 
@@ -21,6 +22,8 @@ Mesh readObj(const std::string& path) {
     if (!in) throw std::runtime_error("cannot open " + path);
 
     Mesh mesh;
+    std::map<std::string, int> materials;
+    int material = 0;
     std::string line;
     size_t lineNo = 0;
     while (std::getline(in, line)) {
@@ -55,9 +58,29 @@ Mesh readObj(const std::string& path) {
                     throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": face index out of range");
                 face.push_back(static_cast<int>(resolved));
             }
-            if (face.size() >= 3) mesh.faces.push_back(std::move(face));
+            if (face.size() >= 3) {
+                mesh.faces.push_back(std::move(face));
+                mesh.faceMaterial.push_back(material);
+            }
+        } else if (tag == "l") {
+            std::vector<int> line;
+            std::string token;
+            while (ss >> token) {
+                long idx = std::strtol(token.c_str(), nullptr, 10);
+                long resolved = idx > 0 ? idx - 1 : static_cast<long>(mesh.vertices.size()) + idx;
+                if (idx == 0 || resolved < 0 || resolved >= static_cast<long>(mesh.vertices.size()))
+                    throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": bad line index");
+                line.push_back(static_cast<int>(resolved));
+            }
+            for (size_t k = 1; k < line.size(); ++k) mesh.featureEdges.push_back({line[k - 1], line[k]});
+        } else if (tag == "usemtl") {
+            std::string name;
+            ss >> name;
+            auto it = materials.emplace(name, (int)materials.size()).first;
+            material = it->second;
         }
     }
+    if (materials.size() <= 1) mesh.faceMaterial.clear();  // no material borders to keep
     if (mesh.vertices.empty() || mesh.faces.empty())
         throw std::runtime_error(path + ": mesh has no geometry");
     return mesh;

@@ -64,6 +64,12 @@ class RemersherSettings(bpy.types.PropertyGroup):
         name="Use Vertex Color", default=False,
         description="Paint density with the active color attribute: white = denser, black = sparser, "
                     "mid-grey = unchanged")
+    use_materials: bpy.props.BoolProperty(
+        name="Use Materials", default=False,
+        description="Keep borders between materials as edge loops")
+    use_normals_splitting: bpy.props.BoolProperty(
+        name="Use Normals Splitting", default=False,
+        description="Keep edges marked sharp as edge loops")
     hide_original: bpy.props.BoolProperty(
         name="Hide Original", default=True,
         description="Hide the source object after remeshing")
@@ -88,7 +94,51 @@ def _vertex_colors(mesh, loops):
     return sums / np.maximum(counts, 1)[:, None]
 
 
-def _mesh_arrays(obj, depsgraph):
+def _transfer_material_indices(context, source, mesh):
+    """Gives every new face the material of the nearest face of the (evaluated) source."""
+    from mathutils.bvhtree import BVHTree
+    evaluated = source.evaluated_get(context.evaluated_depsgraph_get())
+    src = evaluated.to_mesh()
+    try:
+        tree = BVHTree.FromPolygons([v.co.copy() for v in src.vertices],
+                                    [tuple(p.vertices) for p in src.polygons])
+        src_mat = [p.material_index for p in src.polygons]
+        indices = []
+        for p in mesh.polygons:
+            hit = tree.find_nearest(p.center)
+            indices.append(src_mat[hit[2]] if hit[2] is not None else 0)
+        mesh.polygons.foreach_set("material_index", indices)
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _feature_edges(mesh, use_materials, use_normals):
+    """Edges that must become edge loops: borders between materials and/or edges marked sharp."""
+    edges = set()
+    if use_normals:
+        attr = mesh.attributes.get("sharp_edge")
+        if attr is not None and attr.domain == "EDGE":
+            flags = np.zeros(len(mesh.edges), dtype=bool)
+            attr.data.foreach_get("value", flags)
+            sharp = np.nonzero(flags)[0]
+        else:
+            sharp = [e.index for e in mesh.edges if getattr(e, "use_edge_sharp", False)]
+        for i in sharp:
+            a, b = mesh.edges[int(i)].vertices
+            edges.add((min(a, b), max(a, b)))
+    if use_materials and len(mesh.materials) > 1:
+        owner = {}
+        for p in mesh.polygons:
+            vs = list(p.vertices)
+            for k in range(len(vs)):
+                key = (min(vs[k], vs[k - 1]), max(vs[k], vs[k - 1]))
+                if key in owner and owner[key] != p.material_index:
+                    edges.add(key)
+                owner.setdefault(key, p.material_index)
+    return sorted(edges)
+
+
+def _mesh_arrays(obj, depsgraph, use_materials=False, use_normals=False):
     """World-independent (object space) vertices and faces of obj with modifiers applied."""
     evaluated = obj.evaluated_get(depsgraph)
     mesh = evaluated.to_mesh()
@@ -102,7 +152,8 @@ def _mesh_arrays(obj, depsgraph):
         mesh.polygons.foreach_get("loop_start", starts)
         mesh.polygons.foreach_get("loop_total", totals)
         faces = [loops[s:s + t].tolist() for s, t in zip(starts, totals)]
-        return verts.reshape(-1, 3), faces, _vertex_colors(mesh, loops)
+        features = _feature_edges(mesh, use_materials, use_normals)
+        return verts.reshape(-1, 3), faces, _vertex_colors(mesh, loops), features
     finally:
         evaluated.to_mesh_clear()
 
@@ -131,7 +182,9 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         if not binary:
             return "remersher executable not found; set it in the add-on preferences"
         obj = context.active_object
-        verts, faces, colors = _mesh_arrays(obj, context.evaluated_depsgraph_get())
+        sc = context.scene.remersher
+        verts, faces, colors, features = _mesh_arrays(obj, context.evaluated_depsgraph_get(),
+                                                      sc.use_materials, sc.use_normals_splitting)
         if not faces:
             return "Mesh has no faces"
 
@@ -148,7 +201,7 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         self._out_path = os.path.join(self._workdir, "out.obj")
         self._log_path = os.path.join(self._workdir, "log.txt")
         s_use_colors = context.scene.remersher.use_vertex_color and colors is not None
-        core.write_obj(in_path, verts, faces, colors if s_use_colors else None)
+        core.write_obj(in_path, verts, faces, colors if s_use_colors else None, features or None)
 
         self._log = open(self._log_path, "w")
         self._proc = subprocess.Popen(core.build_command(binary, in_path, self._out_path, settings),
@@ -215,6 +268,8 @@ class REMERSHER_OT_remesh(bpy.types.Operator):
         mesh.update()
         for mat in source.data.materials:
             mesh.materials.append(mat)
+        if len(source.data.materials) > 1:
+            _transfer_material_indices(context, source, mesh)
         result = bpy.data.objects.new(mesh.name, mesh)
         result.matrix_world = source.matrix_world.copy()
         for coll in source.users_collection:
@@ -268,7 +323,10 @@ class REMERSHER_PT_panel(bpy.types.Panel):
         sub.enabled = s.detect_hard_edges
         sub.prop(s, "hard_edge_angle", text="")
         box.prop(s, "preserve_boundary")
-        layout.prop(s, "use_vertex_color")
+        col = layout.column(align=True)
+        col.prop(s, "use_vertex_color")
+        col.prop(s, "use_materials")
+        col.prop(s, "use_normals_splitting")
 
         row = layout.row(align=True)
         row.label(text="Symmetry")

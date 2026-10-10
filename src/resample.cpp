@@ -40,7 +40,7 @@ using geom::SurfaceProjector;
 
 class Remesher {
    public:
-    Remesher(const TriangleMesh& in, double target, double hardAngle)
+    Remesher(const TriangleMesh& in, double target, double hardAngle, const FeatureLines* forced)
         : V(in.vertices), F(in.triangles), alive(in.triangles.size(), 1), L(target),
           projector(in.vertices, in.triangles, 2 * target) {
         buildAdjacency();
@@ -52,6 +52,7 @@ class Remesher {
                 Vec3 n0 = normalized(faceNormal(faces[0])), n1 = normalized(faceNormal(faces[1]));
                 feature = dot(n0, n1) < cosHard;
             }
+            if (!feature && forced) feature = forced->covers(V[k >> 32], V[k & 0xffffffff]);
             if (feature) features.insert(k);
             if (faces.size() > 2) {
                 frozen.insert((int)(k >> 32));
@@ -371,9 +372,9 @@ double sliverFraction(const TriangleMesh& mesh) {
 }
 
 TriangleMesh resampleIsotropic(const TriangleMesh& mesh, double targetEdge, double hardEdgeAngle,
-                               int iterations, ResampleStats* stats) {
+                               int iterations, ResampleStats* stats, const FeatureLines* forced) {
     ResampleStats st;
-    Remesher r(mesh, targetEdge, hardEdgeAngle);
+    Remesher r(mesh, targetEdge, hardEdgeAngle, forced);
     TriangleMesh out = r.run(iterations, st);
     if (stats) *stats = st;
     return out;

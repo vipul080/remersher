@@ -4,8 +4,8 @@ An open-source automatic quad remesher. Give it a triangle (or mixed) mesh and a
 count; it returns a clean, all-quad mesh whose edge loops follow the shape's curvature and hard
 edges.
 
-> Status: early (v0.1). The engine works on the bundled test meshes; the Blender add-on,
-> vertex-color density, symmetry and material/normal splitting are on the roadmap below.
+> Status: early (v0.1). CLI and Blender add-on work and are tested in CI (including inside
+> Blender); quality is being compared case by case against a commercial reference.
 
 ## Build
 
@@ -43,6 +43,7 @@ cmake --build build -j
 | `--hard-angle <deg>` | 50 | dihedral angle above which an edge counts as hard |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--vertex-color` | off | use vertex colors as density paint: white = 4× denser, black = 4× sparser, mid-grey unchanged (OBJ `v x y z r g b`) |
+| `--materials` | off | keep borders between OBJ materials (`usemtl`) as edge loops; edges given as OBJ `l` elements are always kept |
 | `--no-boundary` | off | do not constrain open borders |
 | `--resample <mode>` | auto | `auto`, `always` or `never`: isotropic resampling of the input before solving; `auto` only resamples sliver-heavy input |
 | `--seed <n>` | 0 | solver seed; results are deterministic per seed |
@@ -61,10 +62,11 @@ Blender) never freezes.
 In Blender: *Edit › Preferences › Add-ons › Install from Disk* and pick the zip (Blender 3.6+).
 The **Remersher** tab in the 3D view sidebar mirrors the familiar retopology workflow: Quad Count,
 Adaptive Size, Detect Hard Edges by angle, Preserve Borders, Use Vertex Color (density paint with
-the active color attribute), Symmetry X/Y/Z and Seed, with a
+the active color attribute), Use Materials, Use Normals Splitting (edges marked sharp), Symmetry
+X/Y/Z and Seed, with a
 **Remesh It** button; the result is added as `Retopo_<name>`. It runs in the background (Esc cancels), remeshes the
 active object with its modifiers applied, and adds the result as a new object with the same
-transform and materials. CI builds the zip for Linux and macOS on every push and runs it inside Blender
+transform and materials (each new face gets the material of the face under it). CI builds the zip for Linux and macOS on every push and runs it inside Blender
 (`tests/blender_smoke.py`).
 
 ## How it works
@@ -128,7 +130,7 @@ Reference outputs are git-ignored and never committed.
 - [x] Continuous adaptivity (0–100)
 - [x] Vertex-color density painting
 - [x] Symmetry (X / Y / Z)
-- [ ] Split by materials / normals
+- [x] Keep material borders and sharp (split-normal) edges as edge loops
 - [ ] Windows build and prebuilt release binaries
 
 ## License

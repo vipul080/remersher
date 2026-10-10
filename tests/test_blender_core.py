@@ -34,6 +34,8 @@ def test_obj_colors(tmp):
     assert lines[0].split()[4:] == ["1.0000", "1.0000", "1.0000"], lines[0]
     v, f = core.read_obj(path)
     assert len(v) == 3 and f == [[0, 1, 2]]
+    core.write_obj(path, [(0, 0, 0), (1, 0, 0), (0, 1, 0)], [[0, 1, 2]], feature_edges=[(0, 1)])
+    assert "l 1 2\n" in open(path).read()
 
 
 def test_build_command():

@@ -63,9 +63,10 @@ def build_command(binary: str, in_path: str, out_path: str, s: RemeshSettings) -
     return cmd
 
 
-def write_obj(path: str, vertices, faces, colors=None) -> None:
+def write_obj(path: str, vertices, faces, colors=None, feature_edges=None) -> None:
     """vertices: iterable of (x, y, z); faces: iterable of vertex-index sequences (0-based);
-    colors: optional per-vertex (r, g, b) in 0..1, written as `v x y z r g b`."""
+    colors: optional per-vertex (r, g, b) in 0..1, written as `v x y z r g b`;
+    feature_edges: optional (a, b) vertex pairs that must become edge loops, written as `l a b`."""
     with open(path, "w") as fh:
         fh.write("# remersher blender export\n")
         if colors is None:
@@ -74,6 +75,8 @@ def write_obj(path: str, vertices, faces, colors=None) -> None:
             fh.writelines("v %.9g %.9g %.9g %.4f %.4f %.4f\n" % (v[0], v[1], v[2], c[0], c[1], c[2])
                           for v, c in zip(vertices, colors))
         fh.writelines("f " + " ".join(str(i + 1) for i in f) + "\n" for f in faces)
+        if feature_edges is not None:
+            fh.writelines("l %d %d\n" % (a + 1, b + 1) for a, b in feature_edges)
 
 
 def read_obj(path: str) -> tuple[list[tuple[float, float, float]], list[list[int]]]:

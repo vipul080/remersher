@@ -1,5 +1,6 @@
 #pragma once
 
+#include "feature_lines.h"
 #include "mesh_cleanup.h"
 
 namespace remersher {
@@ -18,7 +19,9 @@ double sliverFraction(const TriangleMesh& mesh);
 // targetEdge. Boundary edges and edges with a dihedral angle above hardEdgeAngle (degrees;
 // <= 0 disables) are kept as features: they are split but never flipped, and their vertices are
 // never smoothed or removed. Non-manifold edges and their vertices are left untouched.
+// Edges along `forced` lines are kept as features too.
 TriangleMesh resampleIsotropic(const TriangleMesh& mesh, double targetEdge, double hardEdgeAngle,
-                               int iterations = 5, ResampleStats* stats = nullptr);
+                               int iterations = 5, ResampleStats* stats = nullptr,
+                               const FeatureLines* forced = nullptr);
 
 }  // namespace remersher

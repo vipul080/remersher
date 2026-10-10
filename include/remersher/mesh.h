@@ -13,6 +13,11 @@ struct Mesh {
     // Optional per-vertex density paint in [0, 1] (0.5 = neutral), e.g. from vertex colors.
     // Empty when the input has none.
     std::vector<float> density;
+    // Optional edges that must become edge loops (material borders, sharp edges), as vertex pairs.
+    // Read from OBJ `l` elements.
+    std::vector<std::array<int, 2>> featureEdges;
+    // Optional material index per face (from OBJ `usemtl`); empty when the input has none.
+    std::vector<int> faceMaterial;
 
     size_t countFacesWithSides(size_t n) const;
 };

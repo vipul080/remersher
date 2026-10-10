@@ -41,6 +41,8 @@ struct Settings {
     int relaxIterations = 1;
     // Use the input's vertex colors (Mesh::density) as density paint: brighter = smaller quads.
     bool useVertexColor = false;
+    // Keep borders between materials (Mesh::faceMaterial) as edge loops.
+    bool useMaterials = false;
     // Keep open borders of the input as borders of the output.
     bool preserveBoundary = true;
     // Isotropic resampling of the input before solving. The field solver is unstable on inputs

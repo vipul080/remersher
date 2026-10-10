@@ -52,7 +52,32 @@ def main():
     top = sum(1 for p in painted.data.polygons if p.center.z > 0)
     bottom = len(painted.data.polygons) - top
     assert top > 2 * bottom, (top, bottom)
-    print(f"BLENDER SMOKE OK: {len(faces)} faces, {quads} quads; density paint {top} top / {bottom} bottom")
+    # Materials: a sphere whose top cap has a second material keeps the border as an edge loop.
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, location=(10, 0, 0))
+    mat_ball = bpy.context.active_object
+    for name in ("A", "B"):
+        mat_ball.data.materials.append(bpy.data.materials.new(name))
+    for p in mat_ball.data.polygons:
+        p.material_index = 1 if p.center.z > 0.45 else 0
+    owners = {}
+    for p in mat_ball.data.polygons:
+        for v in p.vertices:
+            owners.setdefault(v, set()).add(p.material_index)
+    border_z = sum(mat_ball.data.vertices[v].co.z for v, m in owners.items() if len(m) == 2)
+    border_z /= sum(1 for m in owners.values() if len(m) == 2)
+    s.use_vertex_color = False
+    s.use_materials = True
+    s.target_quad_count = 1200
+    assert bpy.ops.remersher.remesh() == {"FINISHED"}
+    split = bpy.context.active_object
+    assert len(split.data.materials) == 2
+    used = {p.material_index for p in split.data.polygons}
+    assert used == {0, 1}, used
+    # Faces with the cap material sit above the border, the others below it.
+    wrong = sum(1 for p in split.data.polygons if (p.material_index == 1) != (p.center.z > border_z))
+    assert wrong < 0.03 * len(split.data.polygons), wrong
+    print(f"BLENDER SMOKE OK: {len(faces)} faces, {quads} quads; density paint {top} top / {bottom} bottom; "
+          f"materials {len(split.data.polygons)} faces")
 
 
 try:

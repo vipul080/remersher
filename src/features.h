@@ -1,5 +1,6 @@
 #pragma once
 
+#include "feature_lines.h"
 #include "mesh_cleanup.h"
 #include "remersher/mesh.h"
 
@@ -21,6 +22,7 @@ struct SnapStats {
 // the quad mesh for relaxIterations rounds (vertices kept on the surface and on their
 // features), which evens out quad shapes left distorted by the solver.
 SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle,
-                         int relaxIterations = 0, bool cleanupPoles = false);
+                         int relaxIterations = 0, bool cleanupPoles = false,
+                         const FeatureLines* forced = nullptr);
 
 }  // namespace remersher

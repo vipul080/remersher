@@ -2,6 +2,7 @@
 
 #include "curvature.h"
 #include "density.h"
+#include "feature_lines.h"
 #include "features.h"
 #include "mesh_cleanup.h"
 #include "quality.h"
@@ -43,6 +44,7 @@ struct TriangleInput {
     qflow::MatrixXd V;
     qflow::MatrixXi F;
     const DensitySource* density = nullptr;  // optional density paint
+    const FeatureLines* features = nullptr;  // optional forced feature lines (input coordinates)
 };
 
 TriangleInput toSolverInput(const TriangleMesh& mesh) {
@@ -97,6 +99,21 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
     field->Initialize(faceBudget);
 
     qflow::Hierarchy& h = field->hierarchy;
+    // Forced feature lines: half-edges of the solver mesh lying on them, in input coordinates.
+    std::vector<char> forcedEdge;
+    if (input.features) {
+        forcedEdge.assign(3 * h.mF.cols(), 0);
+        auto toInput = [&](int v) {
+            qflow::Vector3d p = h.mV[0].col(v) * field->normalize_scale + field->normalize_offset;
+            return std::array<double, 3>{p[0], p[1], p[2]};
+        };
+        for (uint32_t i = 0; i < 3 * h.mF.cols(); ++i) {
+            if (!input.features->covers(toInput(h.mF(i % 3, i / 3)), toInput(h.mF((i + 1) % 3, i / 3)))) continue;
+            forcedEdge[i] = 1;
+            field->sharp_edges[i] = 1;  // the integer stage keeps these as edges
+            if (h.mE2E[i] >= 0) forcedEdge[h.mE2E[i]] = field->sharp_edges[h.mE2E[i]] = 1;
+        }
+    }
     h.clearConstraints();
     if (field->flag_preserve_boundary) {
         // Constrain the orientation and position fields to follow open borders.
@@ -114,11 +131,11 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
             h.mCQw[0][i0] = h.mCQw[0][i1] = h.mCOw[0][i0] = h.mCOw[0][i1] = 1.0;
         }
     }
-    if (field->flag_preserve_sharp) {
+    if (field->flag_preserve_sharp || !forcedEdge.empty()) {
         // Constrain the fields to run along hard edges, as QuadriFlow does for borders. Without
         // this the orientation field ignores creases and only the later integer stage tries to
         // pull edge loops onto them, which leaves misplaced corner singularities.
-        const double cosHard = std::cos(s.hardEdgeAngle * M_PI / 180.0);
+        const double cosHard = field->flag_preserve_sharp ? std::cos(s.hardEdgeAngle * M_PI / 180.0) : 2.0;
         std::vector<std::vector<qflow::Vector3d>> dirs(h.mV[0].cols());
         auto faceNormal = [&](uint32_t e) {
             const uint32_t f = e / 3;
@@ -128,7 +145,8 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
         for (uint32_t i = 0; i < 3 * h.mF.cols(); ++i) {
             const int j = h.mE2E[i];
             if (j < 0 || (uint32_t)j < i) continue;  // borders handled above; each pair once
-            if (faceNormal(i).dot(faceNormal(j)) >= cosHard) continue;
+            const bool forced = !forcedEdge.empty() && forcedEdge[i];
+            if (!forced && faceNormal(i).dot(faceNormal(j)) >= cosHard) continue;
             const uint32_t i0 = h.mF(i % 3, i / 3), i1 = h.mF((i + 1) % 3, i / 3);
             const qflow::Vector3d edge = h.mV[0].col(i1) - h.mV[0].col(i0);
             if (edge.squaredNorm() <= 0) continue;
@@ -353,6 +371,36 @@ std::vector<SolveOutcome> solveMany(const TriangleInput& input, const std::vecto
 Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const LogFn& log) {
     if (settings.targetQuadCount <= 0) throw std::runtime_error("targetQuadCount must be positive");
     const auto start = Clock::now();
+
+    // Forced feature lines: explicit `l` edges plus, if requested, borders between materials.
+    std::vector<std::array<FeatureLines::Vec3, 2>> featureSegments;
+    for (const auto& e : input.featureEdges)
+        if (e[0] != e[1]) featureSegments.push_back({input.vertices[e[0]], input.vertices[e[1]]});
+    if (settings.useMaterials && input.faceMaterial.size() == input.faces.size()) {
+        std::map<std::pair<int, int>, int> edgeMaterial;
+        for (size_t fi = 0; fi < input.faces.size(); ++fi) {
+            const auto& f = input.faces[fi];
+            for (size_t i = 0; i < f.size(); ++i) {
+                const std::pair<int, int> k = std::minmax(f[i], f[(i + 1) % f.size()]);
+                auto [it, inserted] = edgeMaterial.emplace(k, input.faceMaterial[fi]);
+                if (!inserted && it->second != input.faceMaterial[fi] && it->second != -2) {
+                    featureSegments.push_back({input.vertices[k.first], input.vertices[k.second]});
+                    it->second = -2;  // record each border edge once
+                }
+            }
+        }
+    }
+    double diag = 0;
+    if (!input.vertices.empty()) {
+        std::array<double, 3> lo = input.vertices[0], hi = lo;
+        for (const auto& v : input.vertices)
+            for (int j = 0; j < 3; ++j) lo[j] = std::min(lo[j], v[j]), hi[j] = std::max(hi[j], v[j]);
+        diag = std::sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) + (hi[1] - lo[1]) * (hi[1] - lo[1]) + (hi[2] - lo[2]) * (hi[2] - lo[2]));
+    }
+    const FeatureLines forced(featureSegments, 1e-5 * diag);
+    const FeatureLines* forcedPtr = forced.empty() ? nullptr : &forced;
+    if (log && forcedPtr) log("feature lines: " + std::to_string(forced.segments().size()) + " edges");
+
     if (settings.symmetryAxes) {
         TriangleMesh half = cleanupForRemeshing(input, 1e-6);
         int axes = 0;
@@ -365,9 +413,32 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             const DensitySource paint(input.vertices, input.density);
             for (const auto& p : halfMesh.vertices) halfMesh.density.push_back(paint.sample(p));
         }
+        // Feature lines on the kept side (cut at the planes) travel as extra `l` edges.
+        for (const auto& seg : featureSegments) {
+            std::array<double, 3> a = seg[0], b = seg[1];
+            bool keep = true;
+            for (int ax = 0; ax < 3 && keep; ++ax) {
+                if (!(settings.symmetryAxes & (1 << ax))) continue;
+                if (a[ax] < 0 && b[ax] < 0) keep = false;
+                else if (a[ax] < 0 || b[ax] < 0) {
+                    const double t = a[ax] / (a[ax] - b[ax]);
+                    std::array<double, 3> c;
+                    for (int j = 0; j < 3; ++j) c[j] = a[j] + t * (b[j] - a[j]);
+                    c[ax] = 0;
+                    (a[ax] < 0 ? a : b) = c;
+                }
+            }
+            if (!keep) continue;
+            const int ia = (int)halfMesh.vertices.size();
+            halfMesh.vertices.push_back(a);
+            halfMesh.vertices.push_back(b);
+            if (!halfMesh.density.empty()) halfMesh.density.insert(halfMesh.density.end(), 2, 0.5f);
+            halfMesh.featureEdges.push_back({ia, ia + 1});
+        }
         for (const auto& t : half.triangles) halfMesh.faces.push_back({t[0], t[1], t[2]});
         Settings sub = settings;
         sub.symmetryAxes = 0;
+        sub.useMaterials = false;  // already turned into feature edges above
         sub.preserveBoundary = true;  // the cut must stay a clean border to weld the halves
         sub.targetQuadCount = std::max(1, settings.targetQuadCount >> axes);
         Mesh result = remesh(halfMesh, sub, report, log);
@@ -403,7 +474,8 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         // adaptive sizing still has room to shrink quads in curved regions.
         const double edge = 0.4 * std::sqrt(area / settings.targetQuadCount);
         ResampleStats rs;
-        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, 5, &rs);
+        solverMesh = resampleIsotropic(clean, edge, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, 5, &rs,
+                                        forcedPtr);
         if (log) {
             char line[200];
             std::snprintf(line, sizeof line,
@@ -413,6 +485,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         }
     }
     TriangleInput tris = toSolverInput(solverMesh);
+    tris.features = forcedPtr;
     std::unique_ptr<DensitySource> paint;
     if (settings.useVertexColor && input.density.size() == input.vertices.size() && !input.vertices.empty()) {
         paint = std::make_unique<DensitySource>(input.vertices, input.density);
@@ -444,7 +517,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
         snapToFeatures(o.mesh, clean, settings.detectHardEdges ? settings.hardEdgeAngle : 0.0, settings.relaxIterations,
-                       settings.cleanupPoles);
+                       settings.cleanupPoles, forcedPtr);
         repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
         // The solver occasionally collapses or folds whole regions without reporting an error;
         // reject those results like a crash.
@@ -494,6 +567,7 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
             if (log) log("falling back to the original triangulation");
             tris = toSolverInput(clean);
             tris.density = paint.get();
+            tris.features = forcedPtr;
             usingResampled = false;
             consecutiveFailures = 0;
             budget = settings.targetQuadCount;

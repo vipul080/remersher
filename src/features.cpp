@@ -183,7 +183,7 @@ void relax(Mesh& output, const TriangleMesh& input, const std::vector<std::vecto
 }  // namespace
 
 SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdgeAngle,
-                         int relaxIterations, bool cleanupPoles) {
+                         int relaxIterations, bool cleanupPoles, const FeatureLines* forced) {
     SnapStats st;
     if (output.faces.empty() || input.triangles.empty()) return st;
 
@@ -205,7 +205,9 @@ SnapStats snapToFeatures(Mesh& output, const TriangleMesh& input, double hardEdg
     for (const auto& [k, ts] : edgeTris) {
         const int a = (int)(k >> 32), b = (int)(k & 0xffffffff);
         const bool border = ts.size() == 1;
-        const bool crease = ts.size() == 2 && dot(triNormal(ts[0]), triNormal(ts[1])) < cosHard;
+        // User feature lines (material borders, sharp edges) count as creases too.
+        const bool crease = ts.size() == 2 && (dot(triNormal(ts[0]), triNormal(ts[1])) < cosHard ||
+                                               (forced && forced->covers(input.vertices[a], input.vertices[b])));
         if (!border && !crease) continue;
         Vec3 d = sub(input.vertices[b], input.vertices[a]);
         double l = norm(d);
