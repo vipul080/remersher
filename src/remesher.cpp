@@ -1,5 +1,6 @@
 #include "remersher/remesher.h"
 
+#include "curvature.h"
 #include "features.h"
 #include "mesh_cleanup.h"
 #include "quality.h"
@@ -91,10 +92,10 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
 
     field->Initialize(faceBudget);
 
+    qflow::Hierarchy& h = field->hierarchy;
+    h.clearConstraints();
     if (field->flag_preserve_boundary) {
         // Constrain the orientation and position fields to follow open borders.
-        qflow::Hierarchy& h = field->hierarchy;
-        h.clearConstraints();
         for (uint32_t i = 0; i < 3 * h.mF.cols(); ++i) {
             if (h.mE2E[i] != -1) continue;
             uint32_t i0 = h.mF(i % 3, i / 3);
@@ -108,8 +109,9 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
             h.mCQ[0].col(i0) = h.mCQ[0].col(i1) = edge;
             h.mCQw[0][i0] = h.mCQw[0][i1] = h.mCOw[0][i0] = h.mCOw[0][i1] = 1.0;
         }
-        h.propagateConstraints();
     }
+    addCurvatureConstraints(h, s.curvatureAlignment);
+    h.propagateConstraints();
 
     qflow::Optimizer::optimize_orientations(field->hierarchy);
     field->ComputeOrientationSingularities();
@@ -351,8 +353,10 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     auto finish = [&](SolveOutcome& o, int budgetUsed) {
         if (!o.ok) return false;
         repairPolygonMesh(o.mesh);
-        if (settings.detectHardEdges || settings.preserveBoundary)
+        if (settings.detectHardEdges || settings.preserveBoundary) {
             snapToFeatures(o.mesh, clean, settings.detectHardEdges ? 60.0 : 0.0);
+            repairPolygonMesh(o.mesh);  // snapping can land two vertices on the same point
+        }
         // The solver occasionally collapses or folds whole regions without reporting an error;
         // reject those results like a crash.
         const QualityCheck qc = checkQuality(clean, o.mesh);

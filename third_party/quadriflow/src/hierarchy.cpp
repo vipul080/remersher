@@ -1208,8 +1208,16 @@ void Hierarchy::propagateConstraints() {
                         cqw *= 0.5f;
                         cow *= 0.5f;
 #else
-            if (cqw > 0) cqw = 1;
-            if (cow > 0) cow = 1;
+            // remersher: hard constraints (weight 1, open borders) stay hard as before; soft ones
+            // (curvature alignment) are averaged over both children, counting an unconstrained
+            // child as 0, so they do not add up to hard constraints on coarse levels.
+            {
+                const int children = upper[1] != -1 ? 2 : 1;
+                const float w0 = CQw[upper[0]], w1 = upper[1] != -1 ? (float)CQw[upper[1]] : 0.0f;
+                cqw = (w0 >= 1 || w1 >= 1) ? 1.0f : (w0 + w1) / children;
+                const float o0 = COw[upper[0]], o1 = upper[1] != -1 ? (float)COw[upper[1]] : 0.0f;
+                cow = (o0 >= 1 || o1 >= 1) ? 1.0f : (o0 + o1) / children;
+            }
 #endif
 
             CQw_next[i] = cqw;

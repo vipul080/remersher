@@ -49,7 +49,7 @@ target_compile_options(quadriflow INTERFACE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wn
 target_link_libraries(quadriflow PUBLIC Eigen3::Eigen Boost::headers lemon)
 
 # --- remersher --------------------------------------------------------------------------------
-add_library(remersher_core STATIC src/mesh_io.cpp src/mesh_cleanup.cpp src/features.cpp src/quality.cpp src/resample.cpp src/remesher.cpp)
+add_library(remersher_core STATIC src/mesh_io.cpp src/mesh_cleanup.cpp src/curvature.cpp src/features.cpp src/quality.cpp src/resample.cpp src/remesher.cpp)
 target_include_directories(remersher_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(remersher_core PRIVATE quadriflow)
 target_compile_options(remersher_core PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>)

@@ -35,6 +35,7 @@ cmake --build build -j
 | `--passes <n>` | 6 | extra solves used to land close to the target count |
 | `-j, --jobs <n>` | 3 | calibration solves run in parallel (macOS / Linux) |
 | `--tolerance <f>` | 0.03 | stop calibrating once within this fraction of the target |
+| `--curvature <f>` | 0.5 | how strongly edge loops follow principal curvature (0 = off, 1 = strongest) |
 | `--no-adaptive` | off | uniform quad size instead of curvature-adaptive |
 | `--no-hard-edges` | off | do not align edge loops to sharp creases |
 | `--no-boundary` | off | do not constrain open borders |
@@ -66,7 +67,8 @@ transform and materials. CI builds the zip for Linux and macOS on every push.
    collapses, valence flips and smoothing projected onto the input; hard edges and borders are
    kept. This is what makes dense UV-sphere-like inputs stable.
 3. **Field-aligned parametrization** (QuadriFlow, Huang et al. 2018): a 4-RoSy orientation field
-   aligned to principal curvature and sharp edges, an optional curvature-adaptive scale field,
+   aligned to sharp edges and, where the curvature direction is strong and coherent over a few
+   quads (tubes, tori, limbs), softly to principal curvature, an optional curvature-adaptive scale field,
    and a position field, solved on a multi-resolution hierarchy.
 4. **Quad extraction** with network-flow based singularity and flip removal.
 5. **Feature snapping**: output vertices near input corners, hard edges and borders are moved
