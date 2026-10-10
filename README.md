@@ -77,8 +77,10 @@ CI builds the add-on for macOS, Linux and Windows on every push and runs it insi
 
 1. **Input clean-up**: concave-safe ngon triangulation (ear clipping), tolerance welding of
    seams, removal of degenerate/duplicate faces, and consistent winding per connected piece.
-   Hard edges are detected here once: edges sharper than `--hard-angle` that form crease lines
-   or loops (scattered facet edges of coarse smooth surfaces are ignored). Together with material
+   Hard edges are detected here once, at the scale of the output quads: edges sharper than
+   `--hard-angle` that form crease lines or loops (scattered facet edges of coarse smooth
+   surfaces are ignored), and small bevels/fillets narrower than about half a quad, whose
+   segments add up to more than `--hard-angle`, as one hard edge along their middle. Together with material
    borders and user edges they travel as feature lines through every later stage.
 2. **Isotropic resampling** (Botsch & Kobbelt) when the input has many slivers: edge splits,
    collapses, valence flips and smoothing projected onto the input; hard edges and borders are

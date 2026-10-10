@@ -488,7 +488,16 @@ Mesh remesh(const Mesh& input, const Settings& settings, Report* report, const L
     // add flat edges that would make the relative crease test meaningless there.
     std::vector<std::array<FeatureLines::Vec3, 2>> allSegments = featureSegments;
     if (settings.detectHardEdges) {
-        auto creases = detectCreases(clean, settings.hardEdgeAngle);
+        // Bevels narrower than about half a quad count as one hard edge at the output's scale.
+        double area = 0;
+        for (const auto& t : clean.triangles) {
+            const auto &a = clean.vertices[t[0]], &b = clean.vertices[t[1]], &c = clean.vertices[t[2]];
+            const double u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, w[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+            area += 0.5 * std::sqrt(std::pow(u[1] * w[2] - u[2] * w[1], 2) + std::pow(u[2] * w[0] - u[0] * w[2], 2) +
+                                    std::pow(u[0] * w[1] - u[1] * w[0], 2));
+        }
+        const double quadEdge = std::sqrt(area / settings.targetQuadCount);
+        auto creases = detectCreases(clean, settings.hardEdgeAngle, 0.5 * quadEdge);
         if (log && !creases.empty()) log("hard edges: " + std::to_string(creases.size()));
         allSegments.insert(allSegments.end(), creases.begin(), creases.end());
     }

@@ -22,7 +22,7 @@ PARAMSETS = {
 CORE = ["P0", "P1", "P2"]
 EXTRA = ["P3", "P4", "P5", "P6", "P7", "P8", "P9"]
 ALL_MESHES = ["sphere_4160", "sphere_32768", "cube", "ngon_cube", "stair", "torus",
-              "plane_hole", "gear", "bumpy", "twospheres", "dice"]
+              "plane_hole", "gear", "bumpy", "twospheres", "dice", "suzanne", "mech_part"]
 EXTRA_MESHES = ["sphere_4160", "gear", "bumpy", "plane_hole"]
 
 
