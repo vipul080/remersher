@@ -110,6 +110,48 @@ Mesh solveOnce(const TriangleInput& input, const Settings& s, int faceBudget) {
             h.mCQw[0][i0] = h.mCQw[0][i1] = h.mCOw[0][i0] = h.mCOw[0][i1] = 1.0;
         }
     }
+    if (field->flag_preserve_sharp) {
+        // Constrain the fields to run along hard edges, as QuadriFlow does for borders. Without
+        // this the orientation field ignores creases and only the later integer stage tries to
+        // pull edge loops onto them, which leaves misplaced corner singularities.
+        const double cosHard = std::cos(60.0 * M_PI / 180.0);
+        std::vector<std::vector<qflow::Vector3d>> dirs(h.mV[0].cols());
+        auto faceNormal = [&](uint32_t e) {
+            const uint32_t f = e / 3;
+            qflow::Vector3d a = h.mV[0].col(h.mF(0, f)), b = h.mV[0].col(h.mF(1, f)), c = h.mV[0].col(h.mF(2, f));
+            return (b - a).cross(c - a).normalized();
+        };
+        for (uint32_t i = 0; i < 3 * h.mF.cols(); ++i) {
+            const int j = h.mE2E[i];
+            if (j < 0 || (uint32_t)j < i) continue;  // borders handled above; each pair once
+            if (faceNormal(i).dot(faceNormal(j)) >= cosHard) continue;
+            const uint32_t i0 = h.mF(i % 3, i / 3), i1 = h.mF((i + 1) % 3, i / 3);
+            const qflow::Vector3d edge = h.mV[0].col(i1) - h.mV[0].col(i0);
+            if (edge.squaredNorm() <= 0) continue;
+            dirs[i0].push_back(edge.normalized());
+            dirs[i1].push_back(edge.normalized());
+        }
+        for (int v = 0; v < (int)dirs.size(); ++v) {
+            if (dirs[v].empty() || h.mCQw[0][v] != 0) continue;
+            const qflow::Vector3d nv = h.mN[0].col(v);
+            qflow::Vector3d d0 = dirs[v][0] - nv * nv.dot(dirs[v][0]);
+            if (d0.squaredNorm() < 1e-12) continue;
+            d0.normalize();
+            // Only where the creases through this vertex agree as a 4-RoSy (meet at multiples of
+            // 90 degrees). At other corners (gear teeth, cube corners) the field needs a
+            // singularity, so it is left free to place one.
+            const qflow::Vector3d perp = nv.cross(d0);
+            bool consistent = true;
+            for (size_t k = 1; k < dirs[v].size() && consistent; ++k) {
+                const double x = dirs[v][k].dot(d0), y = dirs[v][k].dot(perp);
+                consistent = std::cos(4 * std::atan2(y, x)) > 0.5;  // within ~15 degrees
+            }
+            if (!consistent) continue;
+            h.mCQ[0].col(v) = d0;
+            h.mCO[0].col(v) = h.mV[0].col(v);
+            h.mCQw[0][v] = h.mCOw[0][v] = 1.0;
+        }
+    }
     addCurvatureConstraints(h, s.curvatureAlignment);
     h.propagateConstraints();
 
